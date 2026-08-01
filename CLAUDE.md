@@ -24,7 +24,7 @@ poetry run python -m site_monitor.main
 ## Состояние (на 2026-08-01)
 
 - v0.1.0 MVP готов и закоммичен (тег v0.1.0)
-- Ветка `feature/opportunity-engine`: реализован полный v0.2-pipeline (не закоммичено):
+- Ветка `feature/opportunity-engine`: v0.2-pipeline закоммичен (8226725):
   - `parsers/generic.py::parse_text` — извлечение чистого текста страницы
   - `storage` — колонка `content` в `monitored_pages` (снимок текста)
   - `rules/diff.py::new_lines` — новые/изменённые строки между снимками
@@ -32,16 +32,16 @@ poetry run python -m site_monitor.main
   - `notifications/telegram.py::TelegramNotifier` — PTB v22, plain text, лимит 4000 символов
   - `main.py` — бесконечный цикл с интервалом из настроек
 - Ключевые слова в `settings.yaml` (профиль: Account Manager / Customer Success / BizDev)
-- Секреты в `.env` (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) — файл создан с заглушками, пользователь должен заполнить
-- Телеграм выключен (`telegram.enabled: false`) пока нет токена; без notifier события пишутся в лог
+- Секреты в `.env` (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) — заполнены пользователем
+- Телеграм включён (`telegram.enabled: true`), отправка проверена реальным сообщением 2026-08-01
 - Пустые заготовки: `rules/date.py`, `rules/relevance.py` — для будущих версий
 
 ## Roadmap (скорректирован пользователем 2026-08-01)
 
 Цель — личный инструмент поиска работы, НЕ enterprise-платформа. Не делаем пока: plugin system, AI scoring, API, Docker, multi-user.
 
-- v0.2 — рабочий pipeline: diff → keywords → Telegram ← СДЕЛАНО, ждёт токена и коммита
-- Дальше: реальные careers-страницы в `sites`, планировщик/retry, потом AI-анализ (openai уже в зависимостях)
+- v0.2 — рабочий pipeline: diff → keywords → Telegram ← СДЕЛАНО
+- Дальше: реальные careers-страницы в `sites` (сейчас заглушки), планировщик/retry, потом AI-анализ (openai уже в зависимостях)
 
 ## Договорённости
 
