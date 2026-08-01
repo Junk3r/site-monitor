@@ -29,17 +29,47 @@ keywords:
 
 sites:
 
-  - name: Example
-    url: https://example.com
+  - name: Digitain
+    url: https://digitainsoftware.bamboohr.com/careers
 
-  - name: Python
-    url: https://python.org
+  - name: Delasport
+    url: https://job-boards.eu.greenhouse.io/delasportbulgaria
 
-  - name: Playwright
-    url: https://playwright.dev
+  - name: Kaizen Gaming
+    url: https://careers.kaizengaming.com/join-our-team/
 
-  - name: OpenAI
-    url: https://openai.com
+  - name: Soft2Bet
+    url: https://job-boards.eu.greenhouse.io/soft2bet
 
-  - name: GitHub
-    url: https://github.com
+  - name: Pragmatic Solutions
+    url: https://pragmatic.solutions/careers
+
+  - name: GiG
+    url: https://gig.pinpointhq.com/
+
+  - name: Genius Sports
+    url: https://www.geniussports.com/careers/
+
+  - name: Optimove
+    url: https://job-boards.eu.greenhouse.io/optimove
+
+  - name: Xtremepush
+    url: https://xtremepush.jobs.personio.com/
+
+  - name: Altenar
+    url: https://altenar.bamboohr.com/careers
+
+  - name: Betby
+    url: https://betby.com/careers
+
+  - name: Kambi
+    url: https://job-boards.eu.greenhouse.io/kambi
+
+  - name: Playtech
+    url: https://www.playtechpeople.com/jobs-our/
+
+  - name: OpenBet
+    url: https://wmeimg.wd1.myworkdayjobs.com/OPENBET
+
+  - name: BetConstruct
+    url: https://peopleforce.softconstruct.com/careers

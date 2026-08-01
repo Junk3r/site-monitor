@@ -34,6 +34,19 @@ class PlaywrightFetcher:
                 timeout=15000
             )
 
+            try:
+
+                await page.wait_for_load_state(
+                    "networkidle",
+                    timeout=10000
+                )
+
+            except Exception:
+
+                logger.debug(
+                    f"networkidle timeout for {url}, using current state"
+                )
+
             return await page.content()
 
 
