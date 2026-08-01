@@ -1,13 +1,22 @@
+import os
+
 from pathlib import Path
+
 import yaml
+
+from dotenv import load_dotenv
 
 from site_monitor.schemas.site import Site
 
 
 BASE_DIR = Path(__file__).resolve().parent
 
+PROJECT_ROOT = BASE_DIR.parent.parent
+
 
 def load_config():
+
+    load_dotenv(PROJECT_ROOT / ".env")
 
     config_path = BASE_DIR / "settings.yaml"
 
@@ -24,10 +33,17 @@ def load_config():
         for site in data["sites"]
     ]
 
+    telegram = {
+        "enabled": data["telegram"]["enabled"],
+        "token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
+        "chat_id": os.getenv("TELEGRAM_CHAT_ID", ""),
+    }
+
     return {
         "app": data["app"],
         "monitor": data["monitor"],
         "database": data["database"],
-        "telegram": data["telegram"],
+        "telegram": telegram,
+        "keywords": data["keywords"],
         "sites": sites,
     }

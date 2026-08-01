@@ -8,5 +8,6 @@ class OpportunityEvent:
     url: str
     title: str
     matched_keywords: list[str]
+    matched_lines: list[str]
     confidence: float
     detected_at: datetime

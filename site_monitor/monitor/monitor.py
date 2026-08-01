@@ -18,10 +18,22 @@ from site_monitor.storage.repository import (
     PageRepository
 )
 
+from site_monitor.rules.engine import (
+    RuleEngine
+)
+
+from site_monitor.rules.keyword import (
+    KeywordRule
+)
+
+from site_monitor.notifications.telegram import (
+    TelegramNotifier
+)
+
 
 class Monitor:
 
-    def __init__(self):
+    def __init__(self, config):
 
         self.fetcher = PlaywrightFetcher()
         self.parser = GenericParser()
@@ -31,6 +43,34 @@ class Monitor:
         self.repository = PageRepository(
             self.session
         )
+
+        keywords = config["keywords"]
+
+        self.engine = RuleEngine([
+            KeywordRule(
+                include=keywords["include"],
+                exclude=keywords["exclude"],
+            )
+        ])
+
+        telegram = config["telegram"]
+
+        self.notifier = None
+
+        if telegram["enabled"]:
+
+            if telegram["token"] and telegram["chat_id"]:
+
+                self.notifier = TelegramNotifier(
+                    token=telegram["token"],
+                    chat_id=telegram["chat_id"],
+                )
+
+            else:
+
+                logger.warning(
+                    "Telegram enabled but token/chat_id missing in .env"
+                )
 
 
     async def start(self):
@@ -55,56 +95,86 @@ class Monitor:
 
     async def check(
         self,
-        url: str
+        site
     ):
 
         logger.info(
-            f"Checking {url}"
+            f"Checking {site.url}"
         )
 
         html = await self.fetcher.fetch(
-            url
+            site.url
         )
 
         title = self.parser.parse_title(
             html
         )
 
+        content = self.parser.parse_text(
+            html
+        )
+
         page = self.repository.get_by_url(
-            url
+            site.url
         )
 
 
         if page is None:
 
             logger.info(
-                "New page detected"
+                f"Snapshot saved for {site.name}"
             )
 
             self.repository.save(
-                url,
-                title
+                site.url,
+                title,
+                content
             )
 
             return
 
 
-        if page.title != title:
+        events = self.engine.evaluate(
+            site=site.name,
+            url=site.url,
+            old_content=page.content or "",
+            new_content=content,
+        )
+
+
+        if events:
 
             logger.warning(
-                f"Change detected: {page.title} -> {title}"
+                f"Opportunities detected on {site.name}: {len(events)}"
             )
 
-            self.repository.update(
-                page,
-                title
-            )
+            for event in events:
+
+                if self.notifier:
+
+                    await self.notifier.send(
+                        event
+                    )
+
+                else:
+
+                    logger.info(
+                        f"Matched: {event.matched_keywords} "
+                        f"in {event.matched_lines}"
+                    )
 
         else:
 
             logger.info(
-                "No changes"
+                "No relevant changes"
             )
+
+
+        self.repository.update(
+            page,
+            title,
+            content
+        )
 
 
     async def check_all(
@@ -128,7 +198,7 @@ class Monitor:
                 )
 
                 await self.check(
-                    site.url
+                    site
                 )
 
 

@@ -32,12 +32,14 @@ class PageRepository:
     def save(
         self,
         url: str,
-        title: str
+        title: str,
+        content: str
     ):
 
         page = MonitoredPage(
             url=url,
-            title=title
+            title=title,
+            content=content
         )
 
         self.session.add(page)
@@ -47,9 +49,11 @@ class PageRepository:
     def update(
         self,
         page: MonitoredPage,
-        title: str
+        title: str,
+        content: str
     ):
 
         page.title = title
+        page.content = content
 
         self.session.commit()

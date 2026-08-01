@@ -8,9 +8,24 @@ database:
   url: sqlite:///data/monitor.db
 
 telegram:
-  enabled: false
-  token: ""
-  chat_id: ""
+  enabled: true
+
+keywords:
+  include:
+    - account manager
+    - customer success
+    - customer success manager
+    - client success
+    - business development
+    - partnership manager
+    - sales manager
+    - strategic account manager
+  exclude:
+    - junior developer
+    - frontend
+    - backend
+    - designer
+    - internship
 
 sites:
 
@@ -28,6 +43,3 @@ sites:
 
   - name: GitHub
     url: https://github.com
-
-  - name: Broken Test
-    url: https://this-domain-does-not-exist-123456.com

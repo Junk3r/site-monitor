@@ -4,6 +4,7 @@ from sqlalchemy import (
     String,
     DateTime,
     Integer,
+    Text,
 )
 
 from sqlalchemy.orm import (
@@ -32,6 +33,11 @@ class MonitoredPage(Base):
 
     title: Mapped[str] = mapped_column(
         String
+    )
+
+    content: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(
