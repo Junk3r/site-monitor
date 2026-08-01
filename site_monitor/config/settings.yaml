@@ -73,3 +73,109 @@ sites:
 
   - name: BetConstruct
     url: https://peopleforce.softconstruct.com/careers
+
+  # Rating 5 — global industry leaders (from careers_pages_5_and_4.md, unverified)
+
+  - name: Adyen
+    url: https://careers.adyen.com/
+
+  - name: Aristocrat
+    url: https://careers.aristocrat.com/
+
+  - name: Dolby
+    url: https://www.dolby.com/careers/
+
+  - name: Evolution
+    url: https://careers.evolution.com/
+
+  - name: Flutter Entertainment
+    url: https://flutter.com/careers/
+
+  - name: IGT
+    url: https://www.igt.com/explore-igt/careers
+
+  - name: Konami Gaming
+    url: https://www.konamigaming.com/careers
+
+  - name: Mastercard
+    url: https://careers.mastercard.com/us/en/home
+
+  - name: NOVOMATIC
+    url: https://www.novomatic.com/en/explore-novomatic/careers
+
+  - name: Paysafe
+    url: https://www.paysafe.com/en/careers/
+
+  - name: Pragmatic Play
+    url: https://pragmaticplaycareers.com/
+
+  - name: Shift4
+    url: https://www.shift4.com/careers
+
+  - name: Sportradar
+    url: https://sportradar.com/careers/
+
+  - name: Worldpay
+    url: https://jobs.worldpay.com/jobs
+
+  # Rating 4 — major international players (from careers_pages_5_and_4.md, unverified)
+
+  - name: BMM Innovation Group
+    url: https://bmm.com/
+
+  - name: Bragg
+    url: https://bragg.group/careers/
+
+  - name: Continent8
+    url: https://www.continent8.com/careers/
+
+  - name: EveryMatrix
+    url: https://everymatrix.teamtailor.com/
+
+  - name: Games Global
+    url: https://careers.gamesglobal.com/jobs
+
+  - name: Gaming Laboratories International
+    url: https://gaminglabs.com/careers/
+
+  - name: MERKUR
+    url: https://merkur.com/en/carreers/
+
+  - name: Nuvei
+    url: https://www.nuvei.com/careers
+
+  - name: Playson
+    url: https://playson.com/career
+
+  - name: Quixant
+    url: https://www.quixant.com/careers/
+
+  - name: Rapyd
+    url: https://www.rapyd.net/company/careers/
+
+  - name: Relax Gaming
+    url: https://www.relax-gaming.com/careers/
+
+  - name: SEON
+    url: https://seon.io/careers/
+
+  - name: SOFTSWISS
+    url: https://careers.softswiss.com/vacancies/
+
+  - name: Stats Perform
+    url: https://www.statsperform.com/careers/
+
+  - name: Sumsub
+    url: https://careers.sumsub.com/
+
+  - name: TCS John Huxley
+    url: https://tcsjohnhuxley.com/us/careers/
+
+  - name: Trustly
+    url: https://us.trustly.com/careers
+
+  - name: Yggdrasil Gaming
+    url: https://yggdrasilgaming.com/careers
+
+  - name: Zitro
+    url: https://zitrogames.com/work-with-us/
