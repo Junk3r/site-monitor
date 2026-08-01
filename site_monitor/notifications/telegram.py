@@ -51,10 +51,17 @@ class TelegramNotifier:
             event.matched_keywords
         )
 
+        location = (
+            ", ".join(event.matched_locations)
+            if event.matched_locations
+            else "not specified in listing"
+        )
+
         text = (
             f"New opportunity detected\n\n"
             f"Site: {event.site}\n\n"
-            f"Matched keywords: {keywords}\n\n"
+            f"Matched keywords: {keywords}\n"
+            f"Location: {location}\n\n"
             f"New lines:\n{lines}\n\n"
             f"URL: {event.url}"
         )

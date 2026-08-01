@@ -48,8 +48,9 @@ class Monitor:
 
         self.engine = RuleEngine([
             KeywordRule(
-                include=keywords["include"],
-                exclude=keywords["exclude"],
+                include=keywords["roles"]["include"],
+                exclude=keywords["roles"]["exclude"],
+                locations=keywords["locations"],
             )
         ])
 

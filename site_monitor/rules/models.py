@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -11,3 +11,4 @@ class OpportunityEvent:
     matched_lines: list[str]
     confidence: float
     detected_at: datetime
+    matched_locations: list[str] = field(default_factory=list)

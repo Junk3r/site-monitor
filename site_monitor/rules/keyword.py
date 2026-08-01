@@ -1,7 +1,29 @@
+import re
+
 from datetime import datetime, timezone
 
 from site_monitor.rules.diff import new_lines
 from site_monitor.rules.models import OpportunityEvent
+
+
+BASE_CONFIDENCE = 0.7
+
+LOCATION_BONUS = 0.3
+
+
+def compile_keywords(
+    keywords: list[str]
+) -> list[tuple[str, re.Pattern]]:
+
+    return [
+        (
+            keyword.lower(),
+            re.compile(
+                r"\b" + re.escape(keyword.lower()) + r"\b"
+            ),
+        )
+        for keyword in keywords
+    ]
 
 
 class KeywordRule:
@@ -9,17 +31,12 @@ class KeywordRule:
     def __init__(
         self,
         include: list[str],
-        exclude: list[str]
+        exclude: list[str],
+        locations: list[str] | None = None,
     ):
-        self.include = [
-            keyword.lower()
-            for keyword in include
-        ]
-
-        self.exclude = [
-            keyword.lower()
-            for keyword in exclude
-        ]
+        self.include = compile_keywords(include)
+        self.exclude = compile_keywords(exclude)
+        self.locations = compile_keywords(locations or [])
 
 
     def check(
@@ -37,30 +54,45 @@ class KeywordRule:
 
         matched_lines = []
         matched_keywords = set()
+        matched_locations = set()
 
         for line in lines:
 
             lowered = line.lower()
 
             if any(
-                keyword in lowered
-                for keyword in self.exclude
+                pattern.search(lowered)
+                for _, pattern in self.exclude
             ):
                 continue
 
             hits = [
                 keyword
-                for keyword in self.include
-                if keyword in lowered
+                for keyword, pattern in self.include
+                if pattern.search(lowered)
             ]
 
-            if hits:
-                matched_lines.append(line)
-                matched_keywords.update(hits)
+            if not hits:
+                continue
+
+            matched_lines.append(line)
+            matched_keywords.update(hits)
+
+            matched_locations.update(
+                keyword
+                for keyword, pattern in self.locations
+                if pattern.search(lowered)
+            )
 
 
         if not matched_lines:
             return None
+
+
+        confidence = BASE_CONFIDENCE
+
+        if matched_locations or not self.locations:
+            confidence += LOCATION_BONUS
 
 
         return OpportunityEvent(
@@ -69,6 +101,7 @@ class KeywordRule:
             title=matched_lines[0],
             matched_keywords=sorted(matched_keywords),
             matched_lines=matched_lines,
-            confidence=1.0,
+            matched_locations=sorted(matched_locations),
+            confidence=confidence,
             detected_at=datetime.now(timezone.utc),
         )
