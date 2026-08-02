@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from datetime import datetime, timezone
@@ -19,6 +20,21 @@ MIN_LINE_LENGTH = 5
 
 MAX_LINE_LENGTH = 120
 
+EMBED_THRESHOLD = 0.68
+
+EMBED_ANCHORS = [
+    "Account Manager",
+    "Customer Success Manager",
+    "Business Development Manager",
+    "Partnerships Manager",
+    "Sales Manager",
+    "Client Relations Manager",
+]
+
+# Ollama processes requests one at a time; parallel LLM calls
+# from concurrent site checks pile up and time out
+LLM_SEMAPHORE = asyncio.Semaphore(1)
+
 SYSTEM_PROMPT = (
     "You classify lines scraped from careers pages. "
     "The candidate seeks roles like: Account Manager, Customer Success, "
@@ -29,8 +45,19 @@ SYSTEM_PROMPT = (
     "titles matching this profile]}.\n"
     "Exclude: technical roles (developer, engineer, QA, designer, "
     "data, devops), cookie banners, navigation text, marketing copy, "
-    "anything that is not a job vacancy title."
+    "anything that is not a job vacancy title. Exclude administrative "
+    "roles (office manager, accountant, payroll, HR)."
 )
+
+
+def cosine(a: list[float], b: list[float]) -> float:
+
+    dot = sum(x * y for x, y in zip(a, b))
+
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+
+    return dot / (norm_a * norm_b)
 
 
 class SemanticRule:
@@ -41,11 +68,14 @@ class SemanticRule:
         model: str,
         skip_keywords: list[str],
         exclude: list[str],
+        embedding_model: str = "",
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.embedding_model = embedding_model
         self.skip = compile_keywords(skip_keywords)
         self.exclude = compile_keywords(exclude)
+        self._anchor_vectors: list[list[float]] | None = None
 
 
     async def check(
@@ -63,6 +93,18 @@ class SemanticRule:
 
         if not candidates:
             return None
+
+
+        if self.embedding_model:
+
+            candidates = await self._prefilter(
+                site,
+                candidates
+            )
+
+            if not candidates:
+                return None
+
 
         if len(candidates) > MAX_BATCH_LINES:
 
@@ -138,6 +180,79 @@ class SemanticRule:
         return result
 
 
+    async def _embed(
+        self,
+        texts: list[str]
+    ) -> list[list[float]]:
+
+        async with httpx.AsyncClient(
+            timeout=120
+        ) as client:
+
+            response = await client.post(
+                f"{self.base_url}/api/embed",
+                json={
+                    "model": self.embedding_model,
+                    "input": texts,
+                },
+            )
+
+            response.raise_for_status()
+
+            return response.json()["embeddings"]
+
+
+    async def _prefilter(
+        self,
+        site: str,
+        candidates: list[str],
+    ) -> list[str]:
+
+        try:
+
+            if self._anchor_vectors is None:
+
+                self._anchor_vectors = await self._embed(
+                    EMBED_ANCHORS
+                )
+
+            vectors = await self._embed(
+                candidates
+            )
+
+        except Exception as e:
+
+            logger.error(
+                f"Embedding prefilter for {site} failed: {e}, "
+                f"passing all candidates to LLM"
+            )
+
+            return candidates
+
+
+        survivors = []
+
+        for line, vector in zip(candidates, vectors):
+
+            similarity = max(
+                cosine(vector, anchor)
+                for anchor in self._anchor_vectors
+            )
+
+            if similarity >= EMBED_THRESHOLD:
+                survivors.append(line)
+
+
+        if survivors:
+
+            logger.info(
+                f"Embedding prefilter for {site}: "
+                f"{len(candidates)} -> {len(survivors)} lines"
+            )
+
+        return survivors
+
+
     async def _classify(
         self,
         site: str,
@@ -161,18 +276,20 @@ class SemanticRule:
 
         try:
 
-            async with httpx.AsyncClient(
-                timeout=180
-            ) as client:
+            async with LLM_SEMAPHORE:
 
-                response = await client.post(
-                    f"{self.base_url}/api/chat",
-                    json=payload,
-                )
+                async with httpx.AsyncClient(
+                    timeout=180
+                ) as client:
 
-                response.raise_for_status()
+                    response = await client.post(
+                        f"{self.base_url}/api/chat",
+                        json=payload,
+                    )
 
-                content = response.json()["message"]["content"]
+                    response.raise_for_status()
+
+                    content = response.json()["message"]["content"]
 
         except Exception as e:
 

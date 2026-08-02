@@ -74,6 +74,7 @@ class Monitor:
                     model=ai["model"],
                     skip_keywords=keywords["roles"]["include"],
                     exclude=keywords["roles"]["exclude"],
+                    embedding_model=ai.get("embedding_model", ""),
                 )
             )
 
