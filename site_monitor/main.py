@@ -1,4 +1,5 @@
 import asyncio
+import sys
 
 from loguru import logger
 
@@ -24,6 +25,27 @@ async def run_cycle(config):
         await monitor.stop()
 
 
+async def run_scan(config):
+
+    monitor = Monitor(config)
+
+    await monitor.start()
+
+    try:
+
+        events = await monitor.scan_all(
+            config["sites"]
+        )
+
+        logger.info(
+            f"Scan complete: {len(events)} opportunities"
+        )
+
+    finally:
+
+        await monitor.stop()
+
+
 async def main():
 
     logger.info(
@@ -33,6 +55,12 @@ async def main():
     init_database()
 
     config = load_config()
+
+    if "--scan-existing" in sys.argv:
+
+        await run_scan(config)
+
+        return
 
     interval_seconds = (
         config["monitor"]["interval_minutes"] * 60

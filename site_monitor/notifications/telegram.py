@@ -37,6 +37,60 @@ class TelegramNotifier:
             )
 
 
+    async def send_digest(
+        self,
+        events: list[OpportunityEvent]
+    ):
+
+        logger.info(
+            f"Sending Telegram digest: {len(events)} opportunities"
+        )
+
+        entries = []
+
+        for event in events:
+
+            score = (
+                f"[{event.ai_score}/10] "
+                if event.ai_score is not None
+                else ""
+            )
+
+            title = event.title[:80]
+
+            entries.append(
+                f"{score}{event.site}: {title}\n{event.url}"
+            )
+
+
+        header = (
+            f"Vacancy digest — {len(events)} opportunities found\n\n"
+        )
+
+        chunks = []
+        current = header
+
+        for entry in entries:
+
+            if len(current) + len(entry) + 2 > MAX_MESSAGE_LENGTH:
+                chunks.append(current)
+                current = ""
+
+            current += entry + "\n\n"
+
+        chunks.append(current)
+
+
+        async with Bot(self.token) as bot:
+
+            for chunk in chunks:
+
+                await bot.send_message(
+                    chat_id=self.chat_id,
+                    text=chunk.strip(),
+                )
+
+
     def _format(
         self,
         event: OpportunityEvent

@@ -267,3 +267,128 @@ class Monitor:
                 logger.error(
                     f"Failed checking {site.name}: {result}"
                 )
+
+
+    async def scan(
+        self,
+        site
+    ):
+
+        html = await self.fetcher.fetch(
+            site.url
+        )
+
+        title = self.parser.parse_title(
+            html
+        )
+
+        content = self.parser.parse_text(
+            html
+        )
+
+        events = await self.engine.evaluate(
+            site=site.name,
+            url=site.url,
+            old_content="",
+            new_content=content,
+        )
+
+        page = self.repository.get_by_url(
+            site.url
+        )
+
+        if page is None:
+
+            self.repository.save(
+                site.url,
+                title,
+                content
+            )
+
+        else:
+
+            self.repository.update(
+                page,
+                title,
+                content
+            )
+
+        return events
+
+
+    async def scan_all(
+        self,
+        sites
+    ):
+
+        logger.info(
+            f"Scanning existing vacancies on {len(sites)} sites"
+        )
+
+        semaphore = asyncio.Semaphore(3)
+
+
+        async def limited_scan(site):
+
+            async with semaphore:
+
+                logger.info(
+                    f"Scanning site: {site.name}"
+                )
+
+                return await self.scan(
+                    site
+                )
+
+
+        results = await asyncio.gather(
+            *(limited_scan(site) for site in sites),
+            return_exceptions=True
+        )
+
+
+        all_events = []
+
+        for site, result in zip(sites, results):
+
+            if isinstance(result, Exception):
+
+                logger.error(
+                    f"Failed scanning {site.name}: {result}"
+                )
+
+            elif result:
+
+                all_events.extend(result)
+
+
+        logger.info(
+            f"Scan found {len(all_events)} events, scoring..."
+        )
+
+        if self.scorer:
+
+            for index, event in enumerate(all_events):
+
+                logger.info(
+                    f"Scoring {index + 1}/{len(all_events)}: "
+                    f"{event.site}"
+                )
+
+                all_events[index] = await self.scorer.score(
+                    event
+                )
+
+            all_events.sort(
+                key=lambda e: e.ai_score or 0,
+                reverse=True,
+            )
+
+
+        if self.notifier and all_events:
+
+            await self.notifier.send_digest(
+                all_events
+            )
+
+        return all_events
