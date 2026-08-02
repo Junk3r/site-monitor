@@ -39,7 +39,8 @@ class TelegramNotifier:
 
     async def send_digest(
         self,
-        events: list[OpportunityEvent]
+        events: list[OpportunityEvent],
+        header: str = "",
     ):
 
         logger.info(
@@ -63,9 +64,12 @@ class TelegramNotifier:
             )
 
 
-        header = (
-            f"Vacancy digest — {len(events)} opportunities found\n\n"
-        )
+        if not header:
+            header = (
+                f"Vacancy digest — {len(events)} opportunities found"
+            )
+
+        header += "\n\n"
 
         chunks = []
         current = header

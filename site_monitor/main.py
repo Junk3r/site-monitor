@@ -29,12 +29,16 @@ async def run_scan(config):
 
     monitor = Monitor(config)
 
-    await monitor.start()
+    from_db = "--from-db" in sys.argv
+
+    if not from_db:
+        await monitor.start()
 
     try:
 
         events = await monitor.scan_all(
-            config["sites"]
+            config["sites"],
+            from_db=from_db,
         )
 
         logger.info(
@@ -43,7 +47,10 @@ async def run_scan(config):
 
     finally:
 
-        await monitor.stop()
+        if not from_db:
+            await monitor.stop()
+        else:
+            monitor.session.close()
 
 
 async def main():
@@ -56,7 +63,7 @@ async def main():
 
     config = load_config()
 
-    if "--scan-existing" in sys.argv:
+    if "--scan-existing" in sys.argv or "--from-db" in sys.argv:
 
         await run_scan(config)
 

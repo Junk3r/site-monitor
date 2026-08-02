@@ -39,6 +39,9 @@ from site_monitor.notifications.telegram import (
 )
 
 
+DIGEST_BATCH_SIZE = 30
+
+
 class Monitor:
 
     def __init__(self, config):
@@ -319,14 +322,101 @@ class Monitor:
 
     async def scan_all(
         self,
+        sites,
+        from_db: bool = False,
+    ):
+
+        if from_db:
+
+            all_events = await self._events_from_db(
+                sites
+            )
+
+        else:
+
+            all_events = await self._events_from_web(
+                sites
+            )
+
+
+        logger.info(
+            f"Scan found {len(all_events)} events, scoring..."
+        )
+
+        scored = []
+
+        for index, event in enumerate(all_events):
+
+            if self.scorer:
+
+                logger.info(
+                    f"Scoring {index + 1}/{len(all_events)}: "
+                    f"{event.site}"
+                )
+
+                event = await self.scorer.score(
+                    event
+                )
+
+            scored.append(event)
+
+            if (
+                self.notifier
+                and len(scored) % DIGEST_BATCH_SIZE == 0
+            ):
+
+                await self._send_batch(
+                    scored[-DIGEST_BATCH_SIZE:],
+                    len(scored),
+                    len(all_events),
+                )
+
+
+        remainder = len(scored) % DIGEST_BATCH_SIZE
+
+        if self.notifier and remainder:
+
+            await self._send_batch(
+                scored[-remainder:],
+                len(scored),
+                len(all_events),
+            )
+
+        return scored
+
+
+    async def _send_batch(
+        self,
+        batch,
+        done,
+        total,
+    ):
+
+        batch = sorted(
+            batch,
+            key=lambda e: e.ai_score or 0,
+            reverse=True,
+        )
+
+        await self.notifier.send_digest(
+            batch,
+            header=(
+                f"Vacancy digest {done}/{total} scored "
+                f"— batch of {len(batch)}"
+            ),
+        )
+
+
+    async def _events_from_web(
+        self,
         sites
     ):
+
+        semaphore = asyncio.Semaphore(3)
 
         logger.info(
             f"Scanning existing vacancies on {len(sites)} sites"
         )
-
-        semaphore = asyncio.Semaphore(3)
 
 
         async def limited_scan(site):
@@ -362,34 +452,52 @@ class Monitor:
 
                 all_events.extend(result)
 
+        return all_events
+
+
+    async def _events_from_db(
+        self,
+        sites
+    ):
 
         logger.info(
-            f"Scan found {len(all_events)} events, scoring..."
+            f"Scanning stored snapshots for {len(sites)} sites "
+            f"(no fetching)"
         )
 
-        if self.scorer:
+        all_events = []
 
-            for index, event in enumerate(all_events):
+        for site in sites:
 
-                logger.info(
-                    f"Scoring {index + 1}/{len(all_events)}: "
-                    f"{event.site}"
-                )
-
-                all_events[index] = await self.scorer.score(
-                    event
-                )
-
-            all_events.sort(
-                key=lambda e: e.ai_score or 0,
-                reverse=True,
+            page = self.repository.get_by_url(
+                site.url
             )
 
+            if page is None or not page.content:
 
-        if self.notifier and all_events:
+                logger.warning(
+                    f"No stored snapshot for {site.name}, skipping"
+                )
 
-            await self.notifier.send_digest(
-                all_events
-            )
+                continue
+
+            try:
+
+                events = await self.engine.evaluate(
+                    site=site.name,
+                    url=site.url,
+                    old_content="",
+                    new_content=page.content,
+                )
+
+            except Exception as e:
+
+                logger.error(
+                    f"Failed scanning {site.name} from DB: {e}"
+                )
+
+                continue
+
+            all_events.extend(events)
 
         return all_events
