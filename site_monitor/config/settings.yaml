@@ -597,3 +597,29 @@ sites:
 
   - name: Vivo Gaming
     url: https://vivogaming.com/who-we-are/careers/
+
+  # From SiGMA World list (sigma_new_companies.md, unverified)
+
+  - name: Bet365
+    url: https://www.bet365careers.com/
+
+  - name: Cloudflare
+    url: https://www.cloudflare.com/careers/
+
+  - name: Blockchain.com
+    url: https://www.blockchain.com/careers
+
+  - name: DAZN
+    url: https://careers.dazn.com/
+
+  - name: Amusnet
+    url: https://careers-amusnet.com/
+
+  - name: EGT Digital
+    url: https://egt-digital.com/careers/
+
+  - name: Bankera
+    url: https://careers.bankera.com/
+
+  - name: SILKPAY
+    url: https://www.silkpay.eu/career
