@@ -13,7 +13,7 @@ telegram:
 ai:
   enabled: true
   base_url: http://localhost:11434
-  model: gemma4:12b
+  model: qwen3.6:latest
   embedding_model: qwen3-embedding:0.6b
 
 keywords:
