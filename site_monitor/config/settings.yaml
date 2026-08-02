@@ -421,3 +421,33 @@ sites:
 
   - name: Kendoo
     url: https://kendoo.peopleforce.io/careers
+
+  - name: Arrise
+    url: https://arrise.com/careers/job/
+
+  - name: Slotegrator
+    url: https://apply.workable.com/talentgratorjobs/
+
+  - name: GR8 Tech
+    url: https://job-boards.eu.greenhouse.io/gr8tech
+
+  - name: MyGames
+    url: https://careers.my.games/
+
+  - name: RubyPlay
+    url: https://careers.rubyplay.com/
+
+  - name: Betsson Group
+    url: https://job-boards.greenhouse.io/betsson
+
+  - name: Spribe
+    url: https://spribe.hurma.work/public-vacancies
+
+  - name: NSoft
+    url: https://www.nsoft.com/careers/job-vacancies
+
+  - name: NuxGame
+    url: https://nuxgame.com/careers
+
+  - name: SiGMA
+    url: https://sigma.world/projects/igaming-careers/
