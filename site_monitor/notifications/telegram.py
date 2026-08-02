@@ -57,9 +57,21 @@ class TelegramNotifier:
             else "not specified in listing"
         )
 
+        score = ""
+
+        if event.ai_score is not None:
+
+            score = f"Fit score: {event.ai_score}/10"
+
+            if event.ai_reason:
+                score += f" — {event.ai_reason}"
+
+            score += "\n"
+
         text = (
             f"New opportunity detected\n\n"
             f"Site: {event.site}\n\n"
+            f"{score}"
             f"Matched keywords: {keywords}\n"
             f"Location: {location}\n\n"
             f"New lines:\n{lines}\n\n"

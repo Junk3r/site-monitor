@@ -30,6 +30,10 @@ from site_monitor.rules.semantic import (
     SemanticRule
 )
 
+from site_monitor.rules.relevance import (
+    RelevanceScorer
+)
+
 from site_monitor.notifications.telegram import (
     TelegramNotifier
 )
@@ -60,6 +64,8 @@ class Monitor:
 
         ai = config["ai"]
 
+        self.scorer = None
+
         if ai["enabled"]:
 
             rules.append(
@@ -69,6 +75,11 @@ class Monitor:
                     skip_keywords=keywords["roles"]["include"],
                     exclude=keywords["roles"]["exclude"],
                 )
+            )
+
+            self.scorer = RelevanceScorer(
+                base_url=ai["base_url"],
+                model=ai["model"],
             )
 
             logger.info(
@@ -171,6 +182,18 @@ class Monitor:
             logger.warning(
                 f"Opportunities detected on {site.name}: {len(events)}"
             )
+
+            if self.scorer:
+
+                events = [
+                    await self.scorer.score(event)
+                    for event in events
+                ]
+
+                events.sort(
+                    key=lambda e: e.ai_score or 0,
+                    reverse=True,
+                )
 
             for event in events:
 

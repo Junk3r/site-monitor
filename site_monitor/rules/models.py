@@ -12,3 +12,5 @@ class OpportunityEvent:
     confidence: float
     detected_at: datetime
     matched_locations: list[str] = field(default_factory=list)
+    ai_score: int | None = None
+    ai_reason: str = ""
