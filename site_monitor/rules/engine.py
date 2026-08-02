@@ -1,10 +1,13 @@
+import inspect
+
+
 class RuleEngine:
 
     def __init__(self, rules=None):
         self.rules = rules or []
 
 
-    def evaluate(
+    async def evaluate(
         self,
         site: str,
         url: str,
@@ -21,6 +24,9 @@ class RuleEngine:
                 old_content=old_content,
                 new_content=new_content,
             )
+
+            if inspect.isawaitable(result):
+                result = await result
 
             if result:
                 events.append(result)

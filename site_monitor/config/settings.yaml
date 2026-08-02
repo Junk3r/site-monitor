@@ -10,6 +10,11 @@ database:
 telegram:
   enabled: true
 
+ai:
+  enabled: true
+  base_url: http://localhost:11434
+  model: gemma4:12b
+
 keywords:
 
   roles:

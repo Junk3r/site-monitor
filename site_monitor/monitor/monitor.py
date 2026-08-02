@@ -26,6 +26,10 @@ from site_monitor.rules.keyword import (
     KeywordRule
 )
 
+from site_monitor.rules.semantic import (
+    SemanticRule
+)
+
 from site_monitor.notifications.telegram import (
     TelegramNotifier
 )
@@ -46,13 +50,32 @@ class Monitor:
 
         keywords = config["keywords"]
 
-        self.engine = RuleEngine([
+        rules = [
             KeywordRule(
                 include=keywords["roles"]["include"],
                 exclude=keywords["roles"]["exclude"],
                 locations=keywords["locations"],
             )
-        ])
+        ]
+
+        ai = config["ai"]
+
+        if ai["enabled"]:
+
+            rules.append(
+                SemanticRule(
+                    base_url=ai["base_url"],
+                    model=ai["model"],
+                    skip_keywords=keywords["roles"]["include"],
+                    exclude=keywords["roles"]["exclude"],
+                )
+            )
+
+            logger.info(
+                f"AI rule enabled: {ai['model']} at {ai['base_url']}"
+            )
+
+        self.engine = RuleEngine(rules)
 
         telegram = config["telegram"]
 
@@ -135,7 +158,7 @@ class Monitor:
             return
 
 
-        events = self.engine.evaluate(
+        events = await self.engine.evaluate(
             site=site.name,
             url=site.url,
             old_content=page.content or "",

@@ -44,6 +44,7 @@ def load_config():
         "monitor": data["monitor"],
         "database": data["database"],
         "telegram": telegram,
+        "ai": data.get("ai", {"enabled": False}),
         "keywords": data["keywords"],
         "sites": sites,
     }
