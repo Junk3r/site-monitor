@@ -365,3 +365,29 @@ sites:
 
   - name: Vixio
     url: https://www.vixio.com/careers
+
+  # From JobSearchBizDev.xlsx (agent-verified)
+
+  - name: Games Valley
+    url: https://gamesvalley.com/careers/
+
+  - name: Parimatch
+    url: https://talent.pm.group/jobs
+
+  - name: Velitech
+    url: https://velitech.applytojob.com/apply
+
+  - name: BGaming
+    url: https://bgaming.com/careers
+
+  - name: Vegangster
+    url: https://vegangster.com/careers/
+
+  - name: 01 Tech
+    url: https://01.tech/career
+
+  - name: Phoenix365
+    url: https://jobs.dou.ua/companies/phoenix365/vacancies/
+
+  - name: Turbostars
+    url: https://turbostars.io/careers/
