@@ -5,6 +5,40 @@ from telegram import Bot
 MAX_MESSAGE_LENGTH = 4000
 
 
+def build_chunks(
+    header: str,
+    entries: list[str],
+) -> list[str]:
+    """Режет дайджест на сообщения в пределах лимита Telegram.
+    Пустые сообщения отбрасываются — Telegram их отклоняет."""
+
+    chunks = []
+
+    current = header + "\n\n" if header else ""
+
+    for entry in entries:
+
+        # запись длиннее лимита не влезет ни в какой чанк — режем её
+        if len(entry) > MAX_MESSAGE_LENGTH - 2:
+            entry = entry[:MAX_MESSAGE_LENGTH - 5] + "..."
+
+        if len(current) + len(entry) + 2 > MAX_MESSAGE_LENGTH:
+            chunks.append(current)
+            current = ""
+
+        current += entry + "\n\n"
+
+
+    chunks.append(current)
+
+
+    return [
+        chunk.strip()
+        for chunk in chunks
+        if chunk.strip()
+    ]
+
+
 class TelegramNotifier:
 
     def __init__(
@@ -58,41 +92,27 @@ class TelegramNotifier:
         )
 
 
+    async def send_text(
+        self,
+        text: str,
+    ):
+        """Служебное сообщение — например, сводка по сломанным сайтам."""
+
+        await self._send_chunks(
+            "",
+            [text],
+        )
+
+
     async def _send_chunks(
         self,
         header: str,
         entries: list[str],
     ):
 
-        chunks = []
+        for text in build_chunks(header, entries):
 
-        current = header + "\n\n"
-
-        for entry in entries:
-
-            # запись длиннее лимита не влезет ни в какой чанк — режем её
-            if len(entry) > MAX_MESSAGE_LENGTH - 2:
-                entry = entry[:MAX_MESSAGE_LENGTH - 5] + "..."
-
-            if len(current) + len(entry) + 2 > MAX_MESSAGE_LENGTH:
-                chunks.append(current)
-                current = ""
-
-            current += entry + "\n\n"
-
-
-        chunks.append(current)
-
-
-        async with Bot(self.token) as bot:
-
-            for chunk in chunks:
-
-                text = chunk.strip()
-
-                # Telegram отклоняет пустое сообщение
-                if not text:
-                    continue
+            async with Bot(self.token) as bot:
 
                 await bot.send_message(
                     chat_id=self.chat_id,

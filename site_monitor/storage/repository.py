@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from site_monitor.storage.models import (
     MonitoredPage,
     Opportunity,
+    SiteHealth,
     utcnow,
 )
 
@@ -173,3 +174,104 @@ class OpportunityRepository:
     def save_scores(self):
 
         self.session.commit()
+
+
+class SiteHealthRepository:
+
+    def __init__(
+        self,
+        session: Session
+    ):
+        self.session = session
+
+
+    def _get_or_create(self, site) -> SiteHealth:
+
+        record = (
+            self.session
+            .query(SiteHealth)
+            .filter(
+                SiteHealth.url == site.url
+            )
+            .first()
+        )
+
+        if record is None:
+
+            # значения по умолчанию из колонок проставляются только при
+            # вставке, поэтому до неё поля надо заполнить самому
+            record = SiteHealth(
+                url=site.url,
+                name=site.name,
+                source="",
+                vacancies_found=0,
+                consecutive_failures=0,
+                last_error="",
+            )
+
+            self.session.add(record)
+
+
+        record.name = site.name
+
+        return record
+
+
+    def record_success(
+        self,
+        site,
+        source: str,
+        vacancies: int,
+    ):
+
+        now = utcnow()
+
+        record = self._get_or_create(site)
+
+        record.source = source
+        record.vacancies_found = vacancies
+        record.consecutive_failures = 0
+        record.last_error = ""
+        record.last_checked_at = now
+        record.last_success_at = now
+
+        self.session.commit()
+
+
+    def record_failure(
+        self,
+        site,
+        error: str,
+        source: str = "",
+    ):
+
+        record = self._get_or_create(site)
+
+        if source:
+            record.source = source
+
+        record.vacancies_found = 0
+        record.consecutive_failures += 1
+        record.last_error = error[:500]
+        record.last_checked_at = utcnow()
+
+        self.session.commit()
+
+
+    def problems(
+        self,
+        min_failures: int = 1,
+    ) -> list[SiteHealth]:
+
+        return (
+            self.session
+            .query(SiteHealth)
+            .filter(
+                SiteHealth.consecutive_failures >= min_failures
+            )
+            .order_by(
+                SiteHealth.consecutive_failures.desc(),
+                SiteHealth.name,
+            )
+            .all()
+        )

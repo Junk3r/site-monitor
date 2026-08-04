@@ -48,13 +48,13 @@ class MonitoredPage(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow
+        default=utcnow
     )
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow
+        default=utcnow,
+        onupdate=utcnow
     )
 
 
@@ -138,4 +138,58 @@ class Opportunity(Base):
         DateTime,
         nullable=True,
         index=True
+    )
+
+
+class SiteHealth(Base):
+    """Состояние источника. Нужна, чтобы отличить «вакансий нет» от
+    «страница не загрузилась или отдала пустоту»."""
+
+    __tablename__ = "site_health"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True
+    )
+
+    url: Mapped[str] = mapped_column(
+        String,
+        unique=True,
+        index=True
+    )
+
+    name: Mapped[str] = mapped_column(
+        String,
+        default=""
+    )
+
+    source: Mapped[str] = mapped_column(
+        String,
+        default=""
+    )
+
+    vacancies_found: Mapped[int] = mapped_column(
+        Integer,
+        default=0
+    )
+
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        index=True
+    )
+
+    last_error: Mapped[str] = mapped_column(
+        Text,
+        default=""
+    )
+
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True
+    )
+
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True
     )

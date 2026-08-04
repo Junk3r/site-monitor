@@ -5,6 +5,32 @@ from selectolax.parser import HTMLParser
 from site_monitor.schemas.vacancy import Vacancy, normalize_url
 
 
+# страницы антибот-защиты возвращают HTTP 200 и немного осмысленного
+# текста, поэтому по одной только длине их не отличить от нормальных
+BLOCK_MARKERS = (
+    "performing security verification",
+    "checking your browser",
+    "just a moment",
+    "enable javascript and cookies to continue",
+    "verify you are human",
+    "cf-browser-verification",
+    "ddos protection by",
+    "attention required! | cloudflare",
+    "access denied",
+    "request unsuccessful",
+)
+
+
+def looks_blocked(text: str) -> bool:
+
+    lowered = text[:2000].lower()
+
+    return any(
+        marker in lowered
+        for marker in BLOCK_MARKERS
+    )
+
+
 MIN_TITLE_LENGTH = 5
 
 MAX_TITLE_LENGTH = 120

@@ -10,7 +10,10 @@ from site_monitor.fetchers.playwright_fetcher import (
     PlaywrightFetcher
 )
 
-from site_monitor.parsers.generic import GenericParser
+from site_monitor.parsers.generic import (
+    GenericParser,
+    looks_blocked,
+)
 
 from site_monitor.rules.engine import RuleEngine
 from site_monitor.rules.keyword import KeywordRule
@@ -24,6 +27,7 @@ from site_monitor.storage.database import SessionLocal
 from site_monitor.storage.repository import (
     OpportunityRepository,
     PageRepository,
+    SiteHealthRepository,
 )
 
 from site_monitor.notifications.telegram import TelegramNotifier
@@ -33,12 +37,23 @@ DEFAULT_FETCH_CONCURRENCY = 3
 
 DIGEST_BATCH_SIZE = 30
 
+# ниже этого объёма текста страница считается не загрузившейся:
+# Shift4 отдаёт 0 символов, IGT и Games Global по 13
+DEFAULT_MIN_CONTENT_LENGTH = 200
+
+DEFAULT_HEALTH_ALERT_AFTER = 3
+
 
 class Monitor:
 
     def __init__(self, config):
 
-        self.fetcher = PlaywrightFetcher()
+        monitor = config.get("monitor", {})
+
+        self.fetcher = PlaywrightFetcher(
+            attempts=monitor.get("fetch_attempts", 2),
+        )
+
         self.ats = ATSFetcher()
         self.parser = GenericParser()
 
@@ -48,11 +63,21 @@ class Monitor:
 
         self.opportunities = OpportunityRepository(self.session)
 
-        monitor = config.get("monitor", {})
+        self.health = SiteHealthRepository(self.session)
 
         self.fetch_concurrency = monitor.get(
             "concurrency",
             DEFAULT_FETCH_CONCURRENCY,
+        )
+
+        self.min_content_length = monitor.get(
+            "min_content_length",
+            DEFAULT_MIN_CONTENT_LENGTH,
+        )
+
+        self.health_alert_after = monitor.get(
+            "health_alert_after",
+            DEFAULT_HEALTH_ALERT_AFTER,
         )
 
         keywords = config["keywords"]
@@ -103,6 +128,8 @@ class Monitor:
         telegram = config["telegram"]
 
         self.min_score = telegram.get("min_score", 0)
+
+        self.dry_run = telegram.get("dry_run", False)
 
         self.notifier = None
 
@@ -170,6 +197,9 @@ class Monitor:
         logger.info(
             f"Rules matched {len(matches)} vacancies"
         )
+
+        if not from_db:
+            await self._report_health()
 
         created = self.opportunities.upsert_many(matches)
 
@@ -244,6 +274,11 @@ class Monitor:
                     f"Failed checking {site.name}: {result}"
                 )
 
+                self.health.record_failure(
+                    site,
+                    f"{type(result).__name__}: {result}",
+                )
+
             elif result:
                 matches.extend(result)
 
@@ -255,6 +290,13 @@ class Monitor:
         vacancies = await self.ats.fetch(site)
 
         if vacancies is not None:
+
+            self.health.record_success(
+                site,
+                vacancies[0].source,
+                len(vacancies),
+            )
+
             return vacancies
 
 
@@ -266,11 +308,55 @@ class Monitor:
 
         self._save_snapshot(site, title, content)
 
-        return self.parser.parse_vacancies(
+        # антибот-заслон отдаёт 200 и осмысленный текст, поэтому порога
+        # длины мало — Playson так проходил с 317 символами
+        if looks_blocked(content):
+
+            logger.warning(
+                f"{site.name} served a bot-protection page "
+                f"instead of content"
+            )
+
+            self.health.record_failure(
+                site,
+                "blocked by bot protection",
+                source="browser",
+            )
+
+            return []
+
+
+        # пустая страница неотличима от «вакансий нет», если про неё
+        # не сказать отдельно
+        if len(content) < self.min_content_length:
+
+            logger.warning(
+                f"{site.name} returned only {len(content)} characters "
+                f"of text, page likely did not render"
+            )
+
+            self.health.record_failure(
+                site,
+                f"page returned only {len(content)} characters of text",
+                source="browser",
+            )
+
+            return []
+
+
+        vacancies = self.parser.parse_vacancies(
             html,
             site.url,
             site.name,
         )
+
+        self.health.record_success(
+            site,
+            "browser",
+            len(vacancies),
+        )
+
+        return vacancies
 
 
     def _save_snapshot(self, site, title, content):
@@ -335,6 +421,51 @@ class Monitor:
         return matches
 
 
+    async def _report_health(self):
+
+        problems = self.health.problems()
+
+        if not problems:
+
+            logger.info("All sites healthy")
+
+            return
+
+
+        logger.warning(
+            f"{len(problems)} sites are not returning vacancies:"
+        )
+
+        for record in problems:
+
+            logger.warning(
+                f"  {record.name}: {record.last_error} "
+                f"({record.consecutive_failures} in a row)"
+            )
+
+
+        persistent = [
+            record
+            for record in problems
+            if record.consecutive_failures >= self.health_alert_after
+        ]
+
+        if not persistent or not self.notifier:
+            return
+
+
+        lines = "\n".join(
+            f"{record.name} ({record.consecutive_failures}x): "
+            f"{record.last_error}"
+            for record in persistent
+        )
+
+        await self.notifier.send_text(
+            f"{len(persistent)} sites broken for "
+            f"{self.health_alert_after}+ runs:\n\n{lines}"
+        )
+
+
     async def _notify(self, opportunities):
 
         shortlist = [
@@ -363,7 +494,8 @@ class Monitor:
                     f"-> {opportunity.url}"
                 )
 
-            self.opportunities.mark_notified(opportunities)
+            if not self.dry_run:
+                self.opportunities.mark_notified(opportunities)
 
             return
 

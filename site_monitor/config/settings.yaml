@@ -5,6 +5,12 @@ monitor:
   interval_minutes: 480
   # сколько сайтов качаем одновременно
   concurrency: 5
+  # попыток загрузки страницы (1 = без повтора)
+  fetch_attempts: 2
+  # меньше этого объёма текста — считаем, что страница не отрисовалась
+  min_content_length: 200
+  # после скольких неудач подряд слать предупреждение в Телеграм
+  health_alert_after: 3
 
 database:
   url: sqlite:///data/monitor.db
