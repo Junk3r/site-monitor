@@ -10,7 +10,10 @@ poetry run playwright install chromium
 poetry run python -m site_monitor.main            # бесконечный цикл
 poetry run python -m site_monitor.main --once     # один проход
 poetry run python -m site_monitor.main --from-db  # по снимкам из БД, без сети
+poetry run pytest                                 # тесты
 ```
+
+Флаги: `--site NAME` (только этот сайт, можно повторять), `--dry-run` (в лог вместо Телеграма, очередь неотправленных не трогает), `--min-score N`.
 
 Конфиг: `site_monitor/config/settings.yaml`. Секреты — в `.env` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`).
 
@@ -49,22 +52,24 @@ poetry run python -m site_monitor.main --from-db  # по снимкам из Б�
 - Telegram мог отправить пустой чанк и не резал записи длиннее лимита
 - `Vacancy.fingerprint` игнорирует utm-параметры, иначе один и тот же URL давал разные отпечатки
 
+## Надёжность (сделано 2026-08-04, второй заход)
+
+- `SiteHealth` — состояние каждого источника: что вернул, когда работал в последний раз, сколько прогонов подряд падает. Пустая страница больше не выглядит как «вакансий нет»
+- Порог `monitor.min_content_length` (200 символов) ловит нерендерящиеся страницы
+- Детект антибот-заслонов (`parsers/generic.py::looks_blocked`) — порога длины мало: Playson проходил его с 317 символами Cloudflare-заглушки и отдавал 8 «вакансий» со страницы проверки
+- Retry на загрузку через tenacity, `monitor.fetch_attempts`
+- Реальный User-Agent и отдельный browser context на попытку. Это само по себе починило IGT: было 13 символов, стало 13 224
+- Сводка проблемных сайтов в конце прогона; при `health_alert_after` неудачах подряд — сообщение в Телеграм
+- `DATABASE_URL` берётся из `settings.yaml`, относительный путь считается от корня проекта, папка `data/` создаётся сама
+- 60 тестов (`pytest`, `pytest-asyncio` в dev-группе), argparse вместо `sys.argv`, README переписан, `rules/diff.py` удалён, `datetime.utcnow` убран
+
 ## Известные ограничения
 
-- Cloudflare отдаёт headless-браузеру страницу проверки вместо контента (например, Playson) — вакансии с таких сайтов не собираются
+- Cloudflare отдаёт headless-браузеру страницу проверки вместо контента (Playson) — теперь это честно помечается как сбой, но вакансии всё равно не собираются
 - Ссылочный режим на некоторых сайтах цепляет категории вместо вакансий (SOFTSWISS: `/expertises/account-management/`); скоринг такие обычно опускает
 - GiG и другие дублируют одну роль по городам — это разные URL, поэтому разные записи и разные оповещения
 - `careers.sumsub.com` — teamtailor на своём домене, детектор его не ловит и сайт идёт через браузер (работает, но медленнее)
-
-## Не сделано (обсуждалось, отложено)
-
-- `DATABASE_URL` захардкожен в `storage/database.py`, `config["database"]["url"]` не используется; путь относительный и зависит от cwd
-- Нет health-check пустых снимков: Shift4 отдаёт 0 символов, IGT и Games Global по 13 — молча выглядит как «вакансий нет»
-- Нет retry на fetch, хотя `tenacity` в зависимостях
-- Нет тестов; `pytest` не в зависимостях, dev-группы в `pyproject.toml` нет
-- `datetime.utcnow` в `MonitoredPage` (deprecated в 3.12); в новом коде используется `models.utcnow()`
-- `README.md` весь в экранированных `\#` и описывает несуществующие фичи
-- Нет argparse, флаги разбираются через `sys.argv`
+- OpenBet (Workday) и Aviatrix (Greenhouse) отдают 403/404 на публичный API и уходят в браузер
 
 ## Roadmap
 
