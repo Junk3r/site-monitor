@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     String,
     DateTime,
+    Float,
     Integer,
     Text,
 )
@@ -12,6 +13,11 @@ from sqlalchemy.orm import (
     Mapped,
     mapped_column,
 )
+
+
+def utcnow() -> datetime:
+
+    return datetime.now(timezone.utc)
 
 
 class Base(DeclarativeBase):
@@ -49,4 +55,87 @@ class MonitoredPage(Base):
         DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow
+    )
+
+
+class Opportunity(Base):
+    """Найденная вакансия. Ключ дедупликации — fingerprint: одна вакансия
+    попадает сюда один раз и оповещается один раз, сколько бы раз она
+    ни встретилась в последующих сканах."""
+
+    __tablename__ = "opportunities"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True
+    )
+
+    fingerprint: Mapped[str] = mapped_column(
+        String,
+        unique=True,
+        index=True
+    )
+
+    site: Mapped[str] = mapped_column(
+        String
+    )
+
+    title: Mapped[str] = mapped_column(
+        String
+    )
+
+    url: Mapped[str] = mapped_column(
+        String
+    )
+
+    location: Mapped[str] = mapped_column(
+        String,
+        default=""
+    )
+
+    department: Mapped[str] = mapped_column(
+        String,
+        default=""
+    )
+
+    source: Mapped[str] = mapped_column(
+        String,
+        default="text"
+    )
+
+    matched_keywords: Mapped[str] = mapped_column(
+        Text,
+        default=""
+    )
+
+    confidence: Mapped[float] = mapped_column(
+        Float,
+        default=0.0
+    )
+
+    ai_score: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    ai_reason: Mapped[str] = mapped_column(
+        Text,
+        default=""
+    )
+
+    first_seen: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utcnow
+    )
+
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utcnow,
+        onupdate=utcnow
+    )
+
+    notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        index=True
     )
