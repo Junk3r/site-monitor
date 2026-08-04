@@ -37,6 +37,7 @@ def load_config():
         "enabled": data["telegram"]["enabled"],
         "token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
         "chat_id": os.getenv("TELEGRAM_CHAT_ID", ""),
+        "min_score": data["telegram"].get("min_score", 0),
     }
 
     return {

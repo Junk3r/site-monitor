@@ -1,10 +1,4 @@
-import json
-
-import httpx
-
 from loguru import logger
-
-from site_monitor.rules.models import OpportunityEvent
 
 
 CANDIDATE_PROFILE = (
@@ -34,77 +28,97 @@ SCORING_SCALE = (
     "or Russian-speaking market focus\n"
 )
 
+INSTRUCTION = (
+    "Rate each numbered vacancy for this candidate.\n"
+    "Return JSON: {\"scores\": [{\"n\": <line number>, "
+    "\"score\": <1-10>, \"reason\": \"<one short sentence>\"}]}. "
+    "Include every line exactly once."
+)
+
+# по одной вакансии на запрос выходило 125 обращений к модели на скан
+SCORE_BATCH_SIZE = 10
+
 
 class RelevanceScorer:
 
     def __init__(
         self,
-        base_url: str,
+        client,
         model: str,
     ):
-        self.base_url = base_url.rstrip("/")
+        self.client = client
         self.model = model
 
 
-    async def score(
+    async def score_many(
         self,
-        event: OpportunityEvent
-    ) -> OpportunityEvent:
+        opportunities: list,
+    ):
+        """Проставляет ai_score/ai_reason прямо в переданные объекты."""
 
-        vacancy = "\n".join(
-            event.matched_lines
-        )
+        for start in range(0, len(opportunities), SCORE_BATCH_SIZE):
 
-        prompt = (
-            f"Company: {event.site}\n"
-            f"Vacancy (lines scraped from careers page):\n{vacancy}\n\n"
-            f"Rate how well this vacancy fits the candidate. "
-            f"Return JSON: {{\"score\": <1-10>, \"reason\": "
-            f"\"<one short sentence>\"}}"
-        )
+            batch = opportunities[start:start + SCORE_BATCH_SIZE]
 
-        payload = {
-            "model": self.model,
-            "stream": False,
-            "format": "json",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": CANDIDATE_PROFILE + "\n" + SCORING_SCALE,
-                },
-                {"role": "user", "content": prompt},
-            ],
-        }
+            await self._score_batch(batch)
 
-        try:
-
-            async with httpx.AsyncClient(
-                timeout=180
-            ) as client:
-
-                response = await client.post(
-                    f"{self.base_url}/api/chat",
-                    json=payload,
-                )
-
-                response.raise_for_status()
-
-                content = response.json()["message"]["content"]
-
-            data = json.loads(content)
-
-            score = int(data["score"])
-
-            if not 1 <= score <= 10:
-                raise ValueError(f"score out of range: {score}")
-
-            event.ai_score = score
-            event.ai_reason = str(data.get("reason", ""))[:300]
-
-        except Exception as e:
-
-            logger.error(
-                f"Relevance scoring for {event.site} failed: {e}"
+            logger.info(
+                f"Scored {min(start + len(batch), len(opportunities))}"
+                f"/{len(opportunities)}"
             )
 
-        return event
+        return opportunities
+
+
+    async def _score_batch(
+        self,
+        batch: list,
+    ):
+
+        listing = "\n".join(
+            f"{index + 1}. {item.site} — {item.title}"
+            + (f" — {item.location}" if item.location else "")
+            for index, item in enumerate(batch)
+        )
+
+        data = await self.client.chat_json(
+            model=self.model,
+            system=CANDIDATE_PROFILE + "\n" + SCORING_SCALE,
+            user=f"{INSTRUCTION}\n\nVacancies:\n{listing}",
+            label="scoring",
+        )
+
+        if not data:
+            return
+
+
+        scores = data.get("scores", [])
+
+        if not isinstance(scores, list):
+            return
+
+
+        for entry in scores:
+
+            if not isinstance(entry, dict):
+                continue
+
+            try:
+
+                number = int(entry["n"])
+
+                score = int(entry["score"])
+
+            except (KeyError, TypeError, ValueError):
+                continue
+
+            if not 1 <= number <= len(batch):
+                continue
+
+            if not 1 <= score <= 10:
+                continue
+
+            item = batch[number - 1]
+
+            item.ai_score = score
+            item.ai_reason = str(entry.get("reason", ""))[:300]

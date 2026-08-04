@@ -2,42 +2,34 @@ import asyncio
 
 from loguru import logger
 
+from site_monitor.ai.client import OllamaClient
+
+from site_monitor.fetchers.ats import ATSFetcher
+
 from site_monitor.fetchers.playwright_fetcher import (
     PlaywrightFetcher
 )
 
-from site_monitor.parsers.generic import (
-    GenericParser
-)
+from site_monitor.parsers.generic import GenericParser
 
-from site_monitor.storage.database import (
-    SessionLocal
-)
+from site_monitor.rules.engine import RuleEngine
+from site_monitor.rules.keyword import KeywordRule
+from site_monitor.rules.relevance import RelevanceScorer
+from site_monitor.rules.semantic import SemanticRule
+
+from site_monitor.schemas.vacancy import Vacancy
+
+from site_monitor.storage.database import SessionLocal
 
 from site_monitor.storage.repository import (
-    PageRepository
+    OpportunityRepository,
+    PageRepository,
 )
 
-from site_monitor.rules.engine import (
-    RuleEngine
-)
+from site_monitor.notifications.telegram import TelegramNotifier
 
-from site_monitor.rules.keyword import (
-    KeywordRule
-)
 
-from site_monitor.rules.semantic import (
-    SemanticRule
-)
-
-from site_monitor.rules.relevance import (
-    RelevanceScorer
-)
-
-from site_monitor.notifications.telegram import (
-    TelegramNotifier
-)
-
+DEFAULT_FETCH_CONCURRENCY = 3
 
 DIGEST_BATCH_SIZE = 30
 
@@ -47,42 +39,55 @@ class Monitor:
     def __init__(self, config):
 
         self.fetcher = PlaywrightFetcher()
+        self.ats = ATSFetcher()
         self.parser = GenericParser()
 
         self.session = SessionLocal()
 
-        self.repository = PageRepository(
-            self.session
+        self.repository = PageRepository(self.session)
+
+        self.opportunities = OpportunityRepository(self.session)
+
+        monitor = config.get("monitor", {})
+
+        self.fetch_concurrency = monitor.get(
+            "concurrency",
+            DEFAULT_FETCH_CONCURRENCY,
         )
 
         keywords = config["keywords"]
 
-        rules = [
-            KeywordRule(
-                include=keywords["roles"]["include"],
-                exclude=keywords["roles"]["exclude"],
-                locations=keywords["locations"],
-            )
-        ]
+        keyword_rule = KeywordRule(
+            include=keywords["roles"]["include"],
+            exclude=keywords["roles"]["exclude"],
+            locations=keywords["locations"],
+        )
 
         ai = config["ai"]
 
+        self.ai_client = None
         self.scorer = None
+
+        semantic_rule = None
 
         if ai["enabled"]:
 
-            rules.append(
-                SemanticRule(
-                    base_url=ai["base_url"],
-                    model=ai["model"],
-                    skip_keywords=keywords["roles"]["include"],
-                    exclude=keywords["roles"]["exclude"],
-                    embedding_model=ai.get("embedding_model", ""),
-                )
+            self.ai_client = OllamaClient(
+                base_url=ai["base_url"],
+                concurrency=ai.get("concurrency", 1),
+                think=ai.get("think", False),
+            )
+
+            semantic_rule = SemanticRule(
+                client=self.ai_client,
+                model=ai["model"],
+                skip_keywords=keywords["roles"]["include"],
+                exclude=keywords["roles"]["exclude"],
+                embedding_model=ai.get("embedding_model", ""),
             )
 
             self.scorer = RelevanceScorer(
-                base_url=ai["base_url"],
+                client=self.ai_client,
                 model=ai["model"],
             )
 
@@ -90,9 +95,14 @@ class Monitor:
                 f"AI rule enabled: {ai['model']} at {ai['base_url']}"
             )
 
-        self.engine = RuleEngine(rules)
+        self.engine = RuleEngine(
+            keyword_rule=keyword_rule,
+            semantic_rule=semantic_rule,
+        )
 
         telegram = config["telegram"]
+
+        self.min_score = telegram.get("min_score", 0)
 
         self.notifier = None
 
@@ -112,157 +122,119 @@ class Monitor:
                 )
 
 
-    async def start(self):
+    async def start(self, browser: bool = True):
 
-        logger.info(
-            "Starting browser"
-        )
+        await self.ats.start()
 
-        await self.fetcher.start()
+        if self.ai_client:
+            await self.ai_client.start()
+
+        if browser:
+
+            logger.info("Starting browser")
+
+            await self.fetcher.start()
 
 
-    async def stop(self):
+    async def stop(self, browser: bool = True):
 
-        logger.info(
-            "Stopping browser"
-        )
+        if browser:
 
-        await self.fetcher.close()
+            logger.info("Stopping browser")
+
+            await self.fetcher.close()
+
+        await self.ats.close()
+
+        if self.ai_client:
+            await self.ai_client.close()
 
         self.session.close()
 
 
-    async def check(
+    async def run(
         self,
-        site
+        sites,
+        from_db: bool = False,
     ):
+        """Один проход: собрать вакансии, отсеять правилами, сохранить,
+        оценить и оповестить только про новые."""
 
-        logger.info(
-            f"Checking {site.url}"
-        )
-
-        html = await self.fetcher.fetch(
-            site.url
-        )
-
-        title = self.parser.parse_title(
-            html
-        )
-
-        content = self.parser.parse_text(
-            html
-        )
-
-        page = self.repository.get_by_url(
-            site.url
-        )
-
-
-        if page is None:
-
-            logger.info(
-                f"Snapshot saved for {site.name}"
-            )
-
-            self.repository.save(
-                site.url,
-                title,
-                content
-            )
-
-            return
-
-
-        events = await self.engine.evaluate(
-            site=site.name,
-            url=site.url,
-            old_content=page.content or "",
-            new_content=content,
-        )
-
-
-        if events:
-
-            logger.warning(
-                f"Opportunities detected on {site.name}: {len(events)}"
-            )
-
-            if self.scorer:
-
-                events = [
-                    await self.scorer.score(event)
-                    for event in events
-                ]
-
-                events.sort(
-                    key=lambda e: e.ai_score or 0,
-                    reverse=True,
-                )
-
-            for event in events:
-
-                if self.notifier:
-
-                    await self.notifier.send(
-                        event
-                    )
-
-                else:
-
-                    logger.info(
-                        f"Matched: {event.matched_keywords} "
-                        f"in {event.matched_lines}"
-                    )
+        if from_db:
+            matches = await self._matches_from_db(sites)
 
         else:
+            matches = await self._matches_from_sources(sites)
 
-            logger.info(
-                "No relevant changes"
-            )
-
-
-        self.repository.update(
-            page,
-            title,
-            content
-        )
-
-
-    async def check_all(
-        self,
-        sites
-    ):
 
         logger.info(
-            f"Starting parallel check for {len(sites)} sites"
+            f"Rules matched {len(matches)} vacancies"
         )
 
-        semaphore = asyncio.Semaphore(3)
+        created = self.opportunities.upsert_many(matches)
+
+        logger.info(
+            f"{len(created)} new, "
+            f"{len(matches) - len(created)} already known"
+        )
+
+        pending = self.opportunities.pending_notification()
+
+        if not pending:
+            return []
 
 
-        async def limited_check(site):
+        if self.scorer:
+
+            logger.info(
+                f"Scoring {len(pending)} new opportunities"
+            )
+
+            await self.scorer.score_many(pending)
+
+            self.opportunities.save_scores()
+
+
+        await self._notify(pending)
+
+        return pending
+
+
+    async def _matches_from_sources(self, sites):
+        """Фетч и LLM работают конвейером: семафор освобождается сразу
+        после загрузки, поэтому пока один сайт стоит в очереди к модели,
+        остальные продолжают качаться."""
+
+        semaphore = asyncio.Semaphore(self.fetch_concurrency)
+
+        logger.info(
+            f"Checking {len(sites)} sites "
+            f"(fetch concurrency {self.fetch_concurrency})"
+        )
+
+
+        async def process(site):
 
             async with semaphore:
 
-                logger.info(
-                    f"Checking site: {site.name}"
-                )
+                vacancies = await self._collect(site)
 
-                await self.check(
-                    site
-                )
+            if not vacancies:
+                return []
 
+            return await self.engine.evaluate(
+                site.name,
+                vacancies,
+            )
 
-        tasks = [
-            limited_check(site)
-            for site in sites
-        ]
 
         results = await asyncio.gather(
-            *tasks,
-            return_exceptions=True
+            *(process(site) for site in sites),
+            return_exceptions=True,
         )
 
+
+        matches = []
 
         for site, result in zip(sites, results):
 
@@ -272,206 +244,58 @@ class Monitor:
                     f"Failed checking {site.name}: {result}"
                 )
 
+            elif result:
+                matches.extend(result)
 
-    async def scan(
-        self,
-        site
-    ):
+        return matches
 
-        html = await self.fetcher.fetch(
-            site.url
+
+    async def _collect(self, site) -> list[Vacancy]:
+
+        vacancies = await self.ats.fetch(site)
+
+        if vacancies is not None:
+            return vacancies
+
+
+        html = await self.fetcher.fetch(site.url)
+
+        title = self.parser.parse_title(html)
+
+        content = self.parser.parse_text(html)
+
+        self._save_snapshot(site, title, content)
+
+        return self.parser.parse_vacancies(
+            html,
+            site.url,
+            site.name,
         )
 
-        title = self.parser.parse_title(
-            html
-        )
 
-        content = self.parser.parse_text(
-            html
-        )
+    def _save_snapshot(self, site, title, content):
 
-        events = await self.engine.evaluate(
-            site=site.name,
-            url=site.url,
-            old_content="",
-            new_content=content,
-        )
-
-        page = self.repository.get_by_url(
-            site.url
-        )
+        page = self.repository.get_by_url(site.url)
 
         if page is None:
-
-            self.repository.save(
-                site.url,
-                title,
-                content
-            )
+            self.repository.save(site.url, title, content)
 
         else:
-
-            self.repository.update(
-                page,
-                title,
-                content
-            )
-
-        return events
+            self.repository.update(page, title, content)
 
 
-    async def scan_all(
-        self,
-        sites,
-        from_db: bool = False,
-    ):
-
-        if from_db:
-
-            all_events = await self._events_from_db(
-                sites
-            )
-
-        else:
-
-            all_events = await self._events_from_web(
-                sites
-            )
-
-
-        logger.info(
-            f"Scan found {len(all_events)} events, scoring..."
-        )
-
-        scored = []
-
-        for index, event in enumerate(all_events):
-
-            if self.scorer:
-
-                logger.info(
-                    f"Scoring {index + 1}/{len(all_events)}: "
-                    f"{event.site}"
-                )
-
-                event = await self.scorer.score(
-                    event
-                )
-
-            scored.append(event)
-
-            if (
-                self.notifier
-                and len(scored) % DIGEST_BATCH_SIZE == 0
-            ):
-
-                await self._send_batch(
-                    scored[-DIGEST_BATCH_SIZE:],
-                    len(scored),
-                    len(all_events),
-                )
-
-
-        remainder = len(scored) % DIGEST_BATCH_SIZE
-
-        if self.notifier and remainder:
-
-            await self._send_batch(
-                scored[-remainder:],
-                len(scored),
-                len(all_events),
-            )
-
-        return scored
-
-
-    async def _send_batch(
-        self,
-        batch,
-        done,
-        total,
-    ):
-
-        batch = sorted(
-            batch,
-            key=lambda e: e.ai_score or 0,
-            reverse=True,
-        )
-
-        await self.notifier.send_digest(
-            batch,
-            header=(
-                f"Vacancy digest {done}/{total} scored "
-                f"— batch of {len(batch)}"
-            ),
-        )
-
-
-    async def _events_from_web(
-        self,
-        sites
-    ):
-
-        semaphore = asyncio.Semaphore(3)
-
-        logger.info(
-            f"Scanning existing vacancies on {len(sites)} sites"
-        )
-
-
-        async def limited_scan(site):
-
-            async with semaphore:
-
-                logger.info(
-                    f"Scanning site: {site.name}"
-                )
-
-                return await self.scan(
-                    site
-                )
-
-
-        results = await asyncio.gather(
-            *(limited_scan(site) for site in sites),
-            return_exceptions=True
-        )
-
-
-        all_events = []
-
-        for site, result in zip(sites, results):
-
-            if isinstance(result, Exception):
-
-                logger.error(
-                    f"Failed scanning {site.name}: {result}"
-                )
-
-            elif result:
-
-                all_events.extend(result)
-
-        return all_events
-
-
-    async def _events_from_db(
-        self,
-        sites
-    ):
+    async def _matches_from_db(self, sites):
 
         logger.info(
             f"Scanning stored snapshots for {len(sites)} sites "
             f"(no fetching)"
         )
 
-        all_events = []
+        matches = []
 
         for site in sites:
 
-            page = self.repository.get_by_url(
-                site.url
-            )
+            page = self.repository.get_by_url(site.url)
 
             if page is None or not page.content:
 
@@ -481,13 +305,25 @@ class Monitor:
 
                 continue
 
+
+            vacancies = [
+                Vacancy(
+                    site=site.name,
+                    title=line,
+                    url=site.url,
+                    source="text",
+                )
+                for line in page.content.splitlines()
+                if line.strip()
+            ]
+
             try:
 
-                events = await self.engine.evaluate(
-                    site=site.name,
-                    url=site.url,
-                    old_content="",
-                    new_content=page.content,
+                matches.extend(
+                    await self.engine.evaluate(
+                        site.name,
+                        vacancies,
+                    )
                 )
 
             except Exception as e:
@@ -496,8 +332,70 @@ class Monitor:
                     f"Failed scanning {site.name} from DB: {e}"
                 )
 
-                continue
+        return matches
 
-            all_events.extend(events)
 
-        return all_events
+    async def _notify(self, opportunities):
+
+        shortlist = [
+            opportunity
+            for opportunity in opportunities
+            if (opportunity.ai_score or 0) >= self.min_score
+        ]
+
+        skipped = len(opportunities) - len(shortlist)
+
+        if skipped:
+
+            logger.info(
+                f"{skipped} opportunities below min_score "
+                f"{self.min_score}, not sent"
+            )
+
+
+        if not self.notifier:
+
+            for opportunity in shortlist:
+
+                logger.info(
+                    f"[{opportunity.ai_score or '-'}] "
+                    f"{opportunity.site}: {opportunity.title} "
+                    f"-> {opportunity.url}"
+                )
+
+            self.opportunities.mark_notified(opportunities)
+
+            return
+
+
+        shortlist.sort(
+            key=lambda item: item.ai_score or 0,
+            reverse=True,
+        )
+
+        for start in range(0, len(shortlist), DIGEST_BATCH_SIZE):
+
+            batch = shortlist[start:start + DIGEST_BATCH_SIZE]
+
+            await self.notifier.send_digest(
+                batch,
+                header=(
+                    f"New vacancies "
+                    f"{start + len(batch)}/{len(shortlist)}"
+                ),
+            )
+
+
+        self.opportunities.mark_notified(opportunities)
+
+
+    # обратная совместимость с main.py
+
+    async def check_all(self, sites):
+
+        return await self.run(sites)
+
+
+    async def scan_all(self, sites, from_db: bool = False):
+
+        return await self.run(sites, from_db=from_db)

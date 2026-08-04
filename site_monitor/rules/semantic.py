@@ -1,20 +1,13 @@
-import asyncio
-import json
-
-from datetime import datetime, timezone
-
-import httpx
-
 from loguru import logger
 
-from site_monitor.rules.diff import new_lines
 from site_monitor.rules.keyword import compile_keywords
-from site_monitor.rules.models import OpportunityEvent
+from site_monitor.rules.models import Match
+from site_monitor.schemas.vacancy import Vacancy
 
 
 AI_CONFIDENCE = 0.6
 
-MAX_BATCH_LINES = 50
+CLASSIFY_BATCH_SIZE = 50
 
 MIN_LINE_LENGTH = 5
 
@@ -30,10 +23,6 @@ EMBED_ANCHORS = [
     "Sales Manager",
     "Client Relations Manager",
 ]
-
-# Ollama processes requests one at a time; parallel LLM calls
-# from concurrent site checks pile up and time out
-LLM_SEMAPHORE = asyncio.Semaphore(1)
 
 SYSTEM_PROMPT = (
     "You classify lines scraped from careers pages. "
@@ -57,6 +46,9 @@ def cosine(a: list[float], b: list[float]) -> float:
     norm_a = sum(x * x for x in a) ** 0.5
     norm_b = sum(x * x for x in b) ** 0.5
 
+    if not norm_a or not norm_b:
+        return 0.0
+
     return dot / (norm_a * norm_b)
 
 
@@ -64,13 +56,13 @@ class SemanticRule:
 
     def __init__(
         self,
-        base_url: str,
+        client,
         model: str,
         skip_keywords: list[str],
         exclude: list[str],
         embedding_model: str = "",
     ):
-        self.base_url = base_url.rstrip("/")
+        self.client = client
         self.model = model
         self.embedding_model = embedding_model
         self.skip = compile_keywords(skip_keywords)
@@ -78,21 +70,16 @@ class SemanticRule:
         self._anchor_vectors: list[list[float]] | None = None
 
 
-    async def check(
+    async def match(
         self,
         site: str,
-        url: str,
-        old_content: str,
-        new_content: str,
-    ) -> OpportunityEvent | None:
+        vacancies: list[Vacancy],
+    ) -> list[Match]:
 
-        candidates = self._candidates(
-            old_content,
-            new_content
-        )
+        candidates = self._candidates(vacancies)
 
         if not candidates:
-            return None
+            return []
 
 
         if self.embedding_model:
@@ -103,66 +90,46 @@ class SemanticRule:
             )
 
             if not candidates:
-                return None
+                return []
 
 
-        if len(candidates) > MAX_BATCH_LINES:
-
-            logger.warning(
-                f"AI check for {site}: {len(candidates)} candidate "
-                f"lines, truncating to {MAX_BATCH_LINES}"
-            )
-
-            candidates = candidates[:MAX_BATCH_LINES]
-
-
-        matched_lines = await self._classify(
+        matched = await self._classify(
             site,
             candidates
         )
 
-        if not matched_lines:
-            return None
-
-
-        return OpportunityEvent(
-            site=site,
-            url=url,
-            title=matched_lines[0],
-            matched_keywords=["AI: semantic match"],
-            matched_lines=matched_lines,
-            confidence=AI_CONFIDENCE,
-            detected_at=datetime.now(timezone.utc),
-        )
+        return [
+            Match(
+                vacancy=vacancy,
+                keywords=["AI: semantic match"],
+                confidence=AI_CONFIDENCE,
+                via="ai",
+            )
+            for vacancy in matched
+        ]
 
 
     def _candidates(
         self,
-        old_content: str,
-        new_content: str,
-    ) -> list[str]:
-
-        lines = new_lines(
-            old_content,
-            new_content
-        )
+        vacancies: list[Vacancy],
+    ) -> list[Vacancy]:
 
         result = []
 
-        for line in lines:
+        for vacancy in vacancies:
 
-            stripped = line.strip()
+            line = vacancy.as_line().strip()
 
             if not (
                 MIN_LINE_LENGTH
-                <= len(stripped)
+                <= len(line)
                 <= MAX_LINE_LENGTH
             ):
                 continue
 
-            lowered = stripped.lower()
+            lowered = line.lower()
 
-            # already alerted by KeywordRule
+            # уже отдано KeywordRule
             if any(
                 pattern.search(lowered)
                 for _, pattern in self.skip
@@ -175,49 +142,32 @@ class SemanticRule:
             ):
                 continue
 
-            result.append(stripped)
+            result.append(vacancy)
 
         return result
-
-
-    async def _embed(
-        self,
-        texts: list[str]
-    ) -> list[list[float]]:
-
-        async with httpx.AsyncClient(
-            timeout=120
-        ) as client:
-
-            response = await client.post(
-                f"{self.base_url}/api/embed",
-                json={
-                    "model": self.embedding_model,
-                    "input": texts,
-                },
-            )
-
-            response.raise_for_status()
-
-            return response.json()["embeddings"]
 
 
     async def _prefilter(
         self,
         site: str,
-        candidates: list[str],
-    ) -> list[str]:
+        candidates: list[Vacancy],
+    ) -> list[Vacancy]:
 
         try:
 
             if self._anchor_vectors is None:
 
-                self._anchor_vectors = await self._embed(
-                    EMBED_ANCHORS
+                self._anchor_vectors = await self.client.embed(
+                    self.embedding_model,
+                    EMBED_ANCHORS,
                 )
 
-            vectors = await self._embed(
-                candidates
+            vectors = await self.client.embed(
+                self.embedding_model,
+                [
+                    vacancy.as_line()
+                    for vacancy in candidates
+                ],
             )
 
         except Exception as e:
@@ -232,7 +182,7 @@ class SemanticRule:
 
         survivors = []
 
-        for line, vector in zip(candidates, vectors):
+        for vacancy, vector in zip(candidates, vectors):
 
             similarity = max(
                 cosine(vector, anchor)
@@ -240,7 +190,7 @@ class SemanticRule:
             )
 
             if similarity >= EMBED_THRESHOLD:
-                survivors.append(line)
+                survivors.append(vacancy)
 
 
         if survivors:
@@ -256,66 +206,43 @@ class SemanticRule:
     async def _classify(
         self,
         site: str,
-        candidates: list[str],
-    ) -> list[str]:
+        candidates: list[Vacancy],
+    ) -> list[Vacancy]:
+        """Раньше список обрезался до 50 строк и остаток молча терялся.
+        Теперь длинные списки идут батчами."""
 
-        numbered = "\n".join(
-            f"{i + 1}. {line}"
-            for i, line in enumerate(candidates)
-        )
+        matched = []
 
-        payload = {
-            "model": self.model,
-            "stream": False,
-            "format": "json",
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": numbered},
-            ],
-        }
+        for start in range(0, len(candidates), CLASSIFY_BATCH_SIZE):
 
-        try:
+            batch = candidates[start:start + CLASSIFY_BATCH_SIZE]
 
-            async with LLM_SEMAPHORE:
-
-                async with httpx.AsyncClient(
-                    timeout=180
-                ) as client:
-
-                    response = await client.post(
-                        f"{self.base_url}/api/chat",
-                        json=payload,
-                    )
-
-                    response.raise_for_status()
-
-                    content = response.json()["message"]["content"]
-
-        except Exception as e:
-
-            logger.error(
-                f"AI check for {site} failed: {e}"
+            numbered = "\n".join(
+                f"{index + 1}. {vacancy.as_line()}"
+                for index, vacancy in enumerate(batch)
             )
 
-            return []
-
-
-        try:
-
-            numbers = json.loads(content).get("matches", [])
-
-        except (json.JSONDecodeError, AttributeError):
-
-            logger.error(
-                f"AI check for {site}: unparseable response: "
-                f"{content[:200]}"
+            data = await self.client.chat_json(
+                model=self.model,
+                system=SYSTEM_PROMPT,
+                user=numbered,
+                label=f"classify {site}",
             )
 
-            return []
+            if not data:
+                continue
+
+            numbers = data.get("matches", [])
+
+            if not isinstance(numbers, list):
+                continue
+
+            matched.extend(
+                batch[number - 1]
+                for number in numbers
+                if isinstance(number, int)
+                and 1 <= number <= len(batch)
+            )
 
 
-        return [
-            candidates[n - 1]
-            for n in numbers
-            if isinstance(n, int) and 1 <= n <= len(candidates)
-        ]
+        return matched

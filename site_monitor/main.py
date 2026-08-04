@@ -8,49 +8,29 @@ from site_monitor.storage.database import init_database
 from site_monitor.config.loader import load_config
 
 
-async def run_cycle(config):
+async def run_once(config, from_db: bool = False):
 
     monitor = Monitor(config)
 
-    await monitor.start()
+    # снимкам из базы браузер не нужен
+    browser = not from_db
+
+    await monitor.start(browser=browser)
 
     try:
 
-        await monitor.check_all(
-            config["sites"]
-        )
-
-    finally:
-
-        await monitor.stop()
-
-
-async def run_scan(config):
-
-    monitor = Monitor(config)
-
-    from_db = "--from-db" in sys.argv
-
-    if not from_db:
-        await monitor.start()
-
-    try:
-
-        events = await monitor.scan_all(
+        found = await monitor.run(
             config["sites"],
             from_db=from_db,
         )
 
         logger.info(
-            f"Scan complete: {len(events)} opportunities"
+            f"Done: {len(found)} new opportunities"
         )
 
     finally:
 
-        if not from_db:
-            await monitor.stop()
-        else:
-            monitor.session.close()
+        await monitor.stop(browser=browser)
 
 
 async def main():
@@ -63,11 +43,14 @@ async def main():
 
     config = load_config()
 
-    if "--scan-existing" in sys.argv or "--from-db" in sys.argv:
+    from_db = "--from-db" in sys.argv
 
-        await run_scan(config)
+    if from_db or "--scan-existing" in sys.argv or "--once" in sys.argv:
+
+        await run_once(config, from_db=from_db)
 
         return
+
 
     interval_seconds = (
         config["monitor"]["interval_minutes"] * 60
@@ -75,7 +58,7 @@ async def main():
 
     while True:
 
-        await run_cycle(config)
+        await run_once(config)
 
         logger.info(
             f"Cycle complete, next check in "

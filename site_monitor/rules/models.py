@@ -1,16 +1,13 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+
+from site_monitor.schemas.vacancy import Vacancy
 
 
 @dataclass
-class OpportunityEvent:
-    site: str
-    url: str
-    title: str
-    matched_keywords: list[str]
-    matched_lines: list[str]
-    confidence: float
-    detected_at: datetime
-    matched_locations: list[str] = field(default_factory=list)
-    ai_score: int | None = None
-    ai_reason: str = ""
+class Match:
+    """Вакансия, которую правило сочло подходящей."""
+
+    vacancy: Vacancy
+    keywords: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+    via: str = "keyword"

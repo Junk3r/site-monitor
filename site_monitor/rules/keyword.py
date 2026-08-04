@@ -1,9 +1,7 @@
 import re
 
-from datetime import datetime, timezone
-
-from site_monitor.rules.diff import new_lines
-from site_monitor.rules.models import OpportunityEvent
+from site_monitor.rules.models import Match
+from site_monitor.schemas.vacancy import Vacancy
 
 
 BASE_CONFIDENCE = 0.7
@@ -39,55 +37,59 @@ class KeywordRule:
         self.locations = compile_keywords(locations or [])
 
 
+    def match(
+        self,
+        vacancies: list[Vacancy],
+    ) -> list[Match]:
+
+        matches = []
+
+        for vacancy in vacancies:
+
+            match = self.check(vacancy)
+
+            if match:
+                matches.append(match)
+
+        return matches
+
+
     def check(
         self,
-        site: str,
-        url: str,
-        old_content: str,
-        new_content: str,
-    ) -> OpportunityEvent | None:
+        vacancy: Vacancy,
+    ) -> Match | None:
 
-        lines = new_lines(
-            old_content,
-            new_content
-        )
+        line = vacancy.as_line().lower()
 
-        matched_lines = []
-        matched_keywords = set()
-        matched_locations = set()
-
-        for line in lines:
-
-            lowered = line.lower()
-
-            if any(
-                pattern.search(lowered)
-                for _, pattern in self.exclude
-            ):
-                continue
-
-            hits = [
-                keyword
-                for keyword, pattern in self.include
-                if pattern.search(lowered)
-            ]
-
-            if not hits:
-                continue
-
-            matched_lines.append(line)
-            matched_keywords.update(hits)
-
-            matched_locations.update(
-                keyword
-                for keyword, pattern in self.locations
-                if pattern.search(lowered)
-            )
-
-
-        if not matched_lines:
+        if any(
+            pattern.search(line)
+            for _, pattern in self.exclude
+        ):
             return None
 
+
+        hits = [
+            keyword
+            for keyword, pattern in self.include
+            if pattern.search(line)
+        ]
+
+        if not hits:
+            return None
+
+
+        # локация теперь отдельное поле, а не соседняя строка текста —
+        # бонус достаётся только тем, у кого география действительно совпала
+        haystack = (
+            vacancy.location.lower()
+            or line
+        )
+
+        matched_locations = [
+            keyword
+            for keyword, pattern in self.locations
+            if pattern.search(haystack)
+        ]
 
         confidence = BASE_CONFIDENCE
 
@@ -95,13 +97,9 @@ class KeywordRule:
             confidence += LOCATION_BONUS
 
 
-        return OpportunityEvent(
-            site=site,
-            url=url,
-            title=matched_lines[0],
-            matched_keywords=sorted(matched_keywords),
-            matched_lines=matched_lines,
-            matched_locations=sorted(matched_locations),
+        return Match(
+            vacancy=vacancy,
+            keywords=sorted(hits),
             confidence=confidence,
-            detected_at=datetime.now(timezone.utc),
+            via="keyword",
         )

@@ -1,8 +1,6 @@
 from loguru import logger
 from telegram import Bot
 
-from site_monitor.rules.models import OpportunityEvent
-
 
 MAX_MESSAGE_LENGTH = 4000
 
@@ -18,69 +16,70 @@ class TelegramNotifier:
         self.chat_id = chat_id
 
 
-    async def send(
-        self,
-        event: OpportunityEvent
-    ):
-
-        text = self._format(event)
-
-        logger.info(
-            f"Sending Telegram notification for {event.site}"
-        )
-
-        async with Bot(self.token) as bot:
-
-            await bot.send_message(
-                chat_id=self.chat_id,
-                text=text,
-            )
-
-
     async def send_digest(
         self,
-        events: list[OpportunityEvent],
+        opportunities: list,
         header: str = "",
     ):
 
+        if not opportunities:
+            return
+
+
         logger.info(
-            f"Sending Telegram digest: {len(events)} opportunities"
+            f"Sending Telegram digest: {len(opportunities)} opportunities"
         )
-
-        entries = []
-
-        for event in events:
-
-            score = (
-                f"[{event.ai_score}/10] "
-                if event.ai_score is not None
-                else ""
-            )
-
-            title = event.title[:80]
-
-            entries.append(
-                f"{score}{event.site}: {title}\n{event.url}"
-            )
-
 
         if not header:
             header = (
-                f"Vacancy digest — {len(events)} opportunities found"
+                f"Vacancy digest — {len(opportunities)} opportunities found"
             )
 
-        header += "\n\n"
+
+        entries = [
+            self._format(opportunity)
+            for opportunity in opportunities
+        ]
+
+        await self._send_chunks(
+            header,
+            entries
+        )
+
+
+    async def send(
+        self,
+        opportunity,
+    ):
+
+        await self._send_chunks(
+            "New opportunity detected",
+            [self._format(opportunity)],
+        )
+
+
+    async def _send_chunks(
+        self,
+        header: str,
+        entries: list[str],
+    ):
 
         chunks = []
-        current = header
+
+        current = header + "\n\n"
 
         for entry in entries:
+
+            # запись длиннее лимита не влезет ни в какой чанк — режем её
+            if len(entry) > MAX_MESSAGE_LENGTH - 2:
+                entry = entry[:MAX_MESSAGE_LENGTH - 5] + "..."
 
             if len(current) + len(entry) + 2 > MAX_MESSAGE_LENGTH:
                 chunks.append(current)
                 current = ""
 
             current += entry + "\n\n"
+
 
         chunks.append(current)
 
@@ -89,54 +88,38 @@ class TelegramNotifier:
 
             for chunk in chunks:
 
+                text = chunk.strip()
+
+                # Telegram отклоняет пустое сообщение
+                if not text:
+                    continue
+
                 await bot.send_message(
                     chat_id=self.chat_id,
-                    text=chunk.strip(),
+                    text=text,
                 )
 
 
     def _format(
         self,
-        event: OpportunityEvent
+        opportunity,
     ) -> str:
 
-        lines = "\n".join(
-            f"- {line}"
-            for line in event.matched_lines
+        score = (
+            f"[{opportunity.ai_score}/10] "
+            if opportunity.ai_score is not None
+            else ""
         )
 
-        keywords = ", ".join(
-            event.matched_keywords
+        line = (
+            f"{score}{opportunity.site}: "
+            f"{opportunity.title[:100]}"
         )
 
-        location = (
-            ", ".join(event.matched_locations)
-            if event.matched_locations
-            else "not specified in listing"
-        )
+        if opportunity.location:
+            line += f" — {opportunity.location[:60]}"
 
-        score = ""
+        if opportunity.ai_reason:
+            line += f"\n{opportunity.ai_reason[:200]}"
 
-        if event.ai_score is not None:
-
-            score = f"Fit score: {event.ai_score}/10"
-
-            if event.ai_reason:
-                score += f" — {event.ai_reason}"
-
-            score += "\n"
-
-        text = (
-            f"New opportunity detected\n\n"
-            f"Site: {event.site}\n\n"
-            f"{score}"
-            f"Matched keywords: {keywords}\n"
-            f"Location: {location}\n\n"
-            f"New lines:\n{lines}\n\n"
-            f"URL: {event.url}"
-        )
-
-        if len(text) > MAX_MESSAGE_LENGTH:
-            text = text[:MAX_MESSAGE_LENGTH]
-
-        return text
+        return f"{line}\n{opportunity.url}"

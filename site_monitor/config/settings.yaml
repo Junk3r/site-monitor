@@ -2,19 +2,27 @@ app:
   name: Site Monitor
 
 monitor:
-  interval_minutes: 30
+  interval_minutes: 480
+  # сколько сайтов качаем одновременно
+  concurrency: 5
 
 database:
   url: sqlite:///data/monitor.db
 
 telegram:
   enabled: true
+  # не слать вакансии с оценкой ниже (0 — слать всё)
+  min_score: 0
 
 ai:
   enabled: true
   base_url: http://localhost:11434
   model: qwen3.6:latest
   embedding_model: qwen3-embedding:0.6b
+  # Ollama считает запросы по одному; больше 1 только при мощном GPU
+  concurrency: 1
+  # рассуждения съедают время и на длинном промпте оставляют пустой ответ
+  think: false
 
 keywords:
 

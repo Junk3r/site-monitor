@@ -1,4 +1,65 @@
+from urllib.parse import urljoin, urlsplit
+
 from selectolax.parser import HTMLParser
+
+from site_monitor.schemas.vacancy import Vacancy, normalize_url
+
+
+MIN_TITLE_LENGTH = 5
+
+MAX_TITLE_LENGTH = 120
+
+MIN_LINKS_FOR_LINK_MODE = 3
+
+SKIP_SCHEMES = (
+    "#",
+    "mailto:",
+    "tel:",
+    "javascript:",
+)
+
+# типовые пункты навигации, которые иначе уезжают в LLM как кандидаты
+NAV_STOPWORDS = {
+    "home",
+    "about",
+    "about us",
+    "contact",
+    "contact us",
+    "careers",
+    "career",
+    "jobs",
+    "all jobs",
+    "open positions",
+    "vacancies",
+    "apply",
+    "apply now",
+    "read more",
+    "learn more",
+    "view all",
+    "see all",
+    "show more",
+    "load more",
+    "next",
+    "previous",
+    "privacy policy",
+    "cookie policy",
+    "cookies",
+    "terms",
+    "terms of use",
+    "imprint",
+    "legal",
+    "login",
+    "log in",
+    "sign in",
+    "sign up",
+    "search",
+    "news",
+    "blog",
+    "products",
+    "solutions",
+    "partners",
+    "投資家",
+}
 
 
 class GenericParser:
@@ -38,3 +99,103 @@ class GenericParser:
                 lines.append(normalized)
 
         return "\n".join(lines)
+
+
+    def parse_vacancies(
+        self,
+        html: str,
+        base_url: str,
+        site_name: str,
+    ) -> list[Vacancy]:
+        """Вакансии со страницы. Сначала пробуем ссылки — они дают прямой
+        URL на вакансию; если ссылок нет, откатываемся на строки текста."""
+
+        links = self.parse_links(
+            html,
+            base_url,
+            site_name
+        )
+
+        if len(links) >= MIN_LINKS_FOR_LINK_MODE:
+            return links
+
+
+        return [
+            Vacancy(
+                site=site_name,
+                title=line,
+                url=base_url,
+                source="text",
+                direct=False,
+            )
+            for line in self.parse_text(html).splitlines()
+            if MIN_TITLE_LENGTH <= len(line) <= MAX_TITLE_LENGTH
+        ]
+
+
+    def parse_links(
+        self,
+        html: str,
+        base_url: str,
+        site_name: str,
+    ) -> list[Vacancy]:
+
+        tree = HTMLParser(html)
+
+        for node in tree.css(
+            "script, style, noscript, svg, template"
+        ):
+            node.decompose()
+
+
+        page = normalize_url(base_url)
+
+        seen = set()
+
+        vacancies = []
+
+        for node in tree.css("a[href]"):
+
+            href = (node.attributes.get("href") or "").strip()
+
+            if not href or href.startswith(SKIP_SCHEMES):
+                continue
+
+            title = " ".join(node.text().split())
+
+            if not (
+                MIN_TITLE_LENGTH
+                <= len(title)
+                <= MAX_TITLE_LENGTH
+            ):
+                continue
+
+            if title.lower() in NAV_STOPWORDS:
+                continue
+
+
+            url = urljoin(base_url, href)
+
+            if urlsplit(url).scheme not in ("http", "https"):
+                continue
+
+            key = normalize_url(url)
+
+            # ссылка на саму же страницу — это навигация, не вакансия
+            if key == page or key in seen:
+                continue
+
+            seen.add(key)
+
+            vacancies.append(
+                Vacancy(
+                    site=site_name,
+                    title=title,
+                    url=url,
+                    source="link",
+                    direct=True,
+                )
+            )
+
+
+        return vacancies
