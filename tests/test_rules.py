@@ -1,8 +1,13 @@
 from site_monitor.rules.keyword import KeywordRule
 from site_monitor.rules.semantic import SemanticRule
-from site_monitor.rules.relevance import RelevanceScorer
+from site_monitor.rules.relevance import (
+    DEFAULT_SCORING_SCALE,
+    RelevanceScorer,
+)
 from site_monitor.schemas.vacancy import Vacancy
 
+
+PROFILE = "Candidate profile:\n- Account Manager based in Europe"
 
 INCLUDE = ["account manager", "customer success", "business development"]
 
@@ -99,11 +104,13 @@ class FakeClient:
     def __init__(self, answers=None):
         self.answers = list(answers or [])
         self.batch_sizes = []
+        self.systems = []
         self.calls = 0
 
     async def chat_json(self, model, system, user, label=""):
         self.calls += 1
         self.batch_sizes.append(len(user.strip().splitlines()))
+        self.systems.append(system)
         return self.answers.pop(0) if self.answers else {"matches": []}
 
 
@@ -190,7 +197,7 @@ async def test_scorer_applies_scores_to_rows():
 
     rows = [Row("Account Manager"), Row("Backend Engineer")]
 
-    await RelevanceScorer(client=client, model="test").score_many(rows)
+    await RelevanceScorer(client=client, model="test", profile=PROFILE).score_many(rows)
 
     assert rows[0].ai_score == 9
 
@@ -215,7 +222,7 @@ async def test_scorer_skips_invalid_entries():
 
     rows = [Row("Account Manager")]
 
-    await RelevanceScorer(client=client, model="test").score_many(rows)
+    await RelevanceScorer(client=client, model="test", profile=PROFILE).score_many(rows)
 
     assert rows[0].ai_score is None
 
@@ -226,6 +233,54 @@ async def test_scorer_batches_by_ten():
 
     rows = [Row(f"Role {index}") for index in range(25)]
 
-    await RelevanceScorer(client=client, model="test").score_many(rows)
+    await RelevanceScorer(
+        client=client,
+        model="test",
+        profile=PROFILE,
+    ).score_many(rows)
 
     assert client.calls == 3
+
+
+async def test_profile_reaches_the_prompt():
+    """Профиль приходит из config/profile.yaml, а не из кода — если он
+    потеряется по дороге, оценки станут случайными и молча."""
+
+    client = FakeClient()
+
+    await RelevanceScorer(
+        client=client,
+        model="test",
+        profile=PROFILE,
+    ).score_many([Row("Account Manager")])
+
+    assert PROFILE in client.systems[0]
+
+
+async def test_default_scale_is_used_when_none_given():
+
+    client = FakeClient()
+
+    await RelevanceScorer(
+        client=client,
+        model="test",
+        profile=PROFILE,
+    ).score_many([Row("Account Manager")])
+
+    assert DEFAULT_SCORING_SCALE.strip() in client.systems[0]
+
+
+async def test_custom_scale_replaces_the_default():
+
+    client = FakeClient()
+
+    await RelevanceScorer(
+        client=client,
+        model="test",
+        profile=PROFILE,
+        scale="Score meaning:\n1-10: whatever fits",
+    ).score_many([Row("Account Manager")])
+
+    assert "whatever fits" in client.systems[0]
+
+    assert DEFAULT_SCORING_SCALE.strip() not in client.systems[0]

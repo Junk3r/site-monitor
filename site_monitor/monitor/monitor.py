@@ -111,9 +111,13 @@ class Monitor:
                 embedding_model=ai.get("embedding_model", ""),
             )
 
+            profile = config.get("profile", {})
+
             self.scorer = RelevanceScorer(
                 client=self.ai_client,
                 model=ai["model"],
+                profile=profile.get("candidate", ""),
+                scale=profile.get("scale", ""),
             )
 
             logger.info(

@@ -1,0 +1,32 @@
+# Шаблон профиля кандидата для AI-оценки вакансий.
+#
+# Скопируйте в profile.yaml и опишите себя — этот текст уходит в LLM как
+# system prompt, поэтому пишите так, как объяснили бы знакомому рекрутеру.
+# profile.yaml лежит в .gitignore и в репозиторий не попадает.
+#
+#     cp site_monitor/config/profile.yaml.example \
+#        site_monitor/config/profile.yaml
+#
+# Без profile.yaml используется этот файл, и оценки будут бессмысленными.
+
+candidate: |
+  Candidate profile:
+  - Mid/senior Account Manager / Customer Success Manager
+  - Current: CSM at a B2B SaaS vendor, managing a portfolio of enterprise
+    clients
+  - Past: Business Development Manager
+  - Strong domains: SaaS, fintech
+  - Skills: retention, upsell/cross-sell, QBRs, churn recovery,
+    negotiation, partnerships, stakeholder management
+  - Languages: English C1
+  - Location: Europe. Open to remote, hybrid or on-site in Europe
+
+# Необязательно: чем заслужить каждую оценку.
+# Убрать этот ключ — возьмётся шкала по умолчанию из rules/relevance.py
+scale: |
+  Score meaning:
+  1-3: wrong profile (technical, junior, unrelated function)
+  4-6: adjacent role or unclear fit (right function but wrong
+       seniority/domain, or too little information)
+  7-8: direct fit in role OR domain
+  9-10: direct fit in role AND domain, plus a preferred location

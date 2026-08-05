@@ -1,23 +1,9 @@
 from loguru import logger
 
 
-CANDIDATE_PROFILE = (
-    "Candidate profile:\n"
-    "- Mid/senior Account Manager / Customer Success Manager\n"
-    "- Current: CSM at Sumsub (KYC/KYB verification SaaS), managing "
-    "~2.2M EUR ARR portfolio, 80+ clients, MENA region, 92% retention\n"
-    "- Past: Business Development Manager in Crypto (exchange listings, "
-    "KOL partnerships, negotiations with top-100 exchanges), "
-    "senior IP lawyer (gaming industry)\n"
-    "- Strong domains: iGaming, Crypto, SaaS, KYC/compliance-adjacent\n"
-    "- Skills: retention, upsell/cross-sell, QBRs, churn recovery, "
-    "negotiation, partnerships, stakeholder management\n"
-    "- Languages: English C1, Russian native\n"
-    "- Location: Belgrade, Serbia. Open to remote, hybrid, or on-site "
-    "in Europe/UAE. NOT open to positions located in Russia\n"
-)
-
-SCORING_SCALE = (
+# Профиль кандидата — личные данные, поэтому он живёт в
+# config/profile.yaml (в .gitignore), а не в коде
+DEFAULT_SCORING_SCALE = (
     "Score meaning:\n"
     "1-3: wrong profile (technical, junior, unrelated function)\n"
     "4-6: adjacent role or unclear fit (right function but wrong "
@@ -45,9 +31,17 @@ class RelevanceScorer:
         self,
         client,
         model: str,
+        profile: str,
+        scale: str = "",
     ):
         self.client = client
         self.model = model
+
+        self.system = (
+            profile.strip()
+            + "\n\n"
+            + (scale.strip() or DEFAULT_SCORING_SCALE)
+        )
 
 
     async def score_many(
@@ -83,7 +77,7 @@ class RelevanceScorer:
 
         data = await self.client.chat_json(
             model=self.model,
-            system=CANDIDATE_PROFILE + "\n" + SCORING_SCALE,
+            system=self.system,
             user=f"{INSTRUCTION}\n\nVacancies:\n{listing}",
             label="scoring",
         )

@@ -15,7 +15,7 @@ poetry run pytest                                 # тесты
 
 Флаги: `--site NAME` (только этот сайт, можно повторять), `--dry-run` (в лог вместо Телеграма, очередь неотправленных не трогает), `--min-score N`.
 
-Конфиг: `site_monitor/config/settings.yaml`. Секреты — в `.env` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`).
+Конфиг: `site_monitor/config/settings.yaml`. Секреты — в `.env` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`). Профиль кандидата — `site_monitor/config/profile.yaml` (не коммитится, шаблон рядом в `.example`).
 
 ## Архитектура
 
@@ -27,7 +27,7 @@ poetry run pytest                                 # тесты
 - `parsers/generic.py` — `parse_vacancies`: сначала ссылки `<a href>` (дают URL вакансии), при их отсутствии — фолбэк на строки текста
 - `rules/keyword.py` — include/exclude по строке «title — location — department»; бонус за локацию считается по отдельному полю
 - `rules/semantic.py` — LLM-классификация того, что не поймали ключевые слова; эмбеддинг-префильтр отсекает заведомо чужое. Длинные списки идут батчами по 50
-- `rules/relevance.py` — оценка 1–10 под профиль кандидата, батчами по 10 вакансий за запрос
+- `rules/relevance.py` — оценка 1–10 под профиль кандидата, батчами по 10 вакансий за запрос. Сам профиль в коде не хранится: он приходит из `config/profile.yaml` (в `.gitignore`), шаблон — `profile.yaml.example`
 - `ai/client.py` — единая точка обращения к Ollama: один семафор на процесс, одно соединение, батчинг эмбеддингов
 - `storage/` — SQLAlchemy + SQLite (`data/monitor.db`): `MonitoredPage` (снимок страницы) и `Opportunity` (найденная вакансия, уникальна по fingerprint)
 - `monitor/monitor.py` — оркестратор, конвейер fetch→LLM

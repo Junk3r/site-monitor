@@ -35,6 +35,14 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 ```
 
+Describe yourself for the scoring stage:
+
+```bash
+cp site_monitor/config/profile.yaml.example site_monitor/config/profile.yaml
+```
+
+Then edit `profile.yaml` — role, seniority, domains, languages, where you are willing to work. That text becomes the system prompt for scoring, so write it the way you would explain yourself to a recruiter. The file holds personal data and is gitignored; without it the example is used and scores are meaningless.
+
 ---
 
 ## Run
@@ -93,6 +101,8 @@ sites:
 ```
 
 The AI stage is optional — with `ai.enabled: false` the tool runs on keywords alone and needs no local model.
+
+The candidate profile lives in `site_monitor/config/profile.yaml`, separate from `settings.yaml`, because it is personal data rather than application configuration. It is gitignored; `profile.yaml.example` is the template.
 
 ---
 
